@@ -8,6 +8,7 @@ import { loadLight } from './light/load'
 import { lightVertices } from './light/vertices'
 import { createLighting } from './light/environment'
 import { lightMaterial } from './light/material'
+import { mountSelectionUI } from './ui/viewer'
 import './style.css'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
@@ -35,6 +36,7 @@ try {
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
   const controls = new OrbitControls(camera, renderer.domElement)
+  mountSelectionUI(loaded, meshes, camera, renderer.domElement)
   controls.target.copy(size).multiplyScalar(0.5)
   controls.update()
   const panel = document.createElement('div')

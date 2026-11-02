@@ -57,8 +57,34 @@ try {
           light: [...v.meshes.group.children[0].children[0].geometry.getAttribute('light').array.slice(0, 3)] };
       })()`)
       if (result.errors.length) throw new Error(result.errors.join('\n'))
-      const image = await send('Page.captureScreenshot', { format: 'png' })
+      if (preset.name === 'day' || preset.name === 'night') {
+        await evaluate(`document.querySelector('#pick').click()`)
+        for (const x of [24.5, 25.5]) {
+          const point = await evaluate(`(() => {
+            const v = window.viewer, p = v.camera.position.clone().set(${x}, 1, 5.5).project(v.camera);
+            const rect = v.renderer.domElement.getBoundingClientRect();
+            return { x: rect.left + (p.x + 1) * rect.width / 2, y: rect.top + (1 - p.y) * rect.height / 2 };
+          })()`)
+          await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 })
+          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: 1 })
+        }
+        result.selection = await evaluate(`({ block: document.querySelector('#block-info').textContent, range: document.querySelector('#range-info').textContent, disabled: document.querySelector('#add').disabled })`)
+        if (result.selection.disabled || !result.selection.block.includes('25, 0, 5') || !result.selection.block.includes('生成元: representative') || !result.selection.range.includes('[[24,0,5],[25,0,5]]')) throw new Error(`照明下での選択結果が不一致: ${JSON.stringify(result.selection)}`)
+        await evaluate(`document.querySelector('#value').value = 'minecraft:glass'; document.querySelector('#add').click(); document.querySelector('#save').click()`)
+        const deadline = Date.now() + 5000
+        while (!await evaluate(`document.querySelector('#edit-status').textContent === 'edits を保存しました。'`)) {
+          if (Date.now() > deadline) throw new Error('editsの保存が完了しませんでした')
+          await delay(50)
+        }
+        result.edits = await evaluate(`document.querySelector('#edit-list').textContent`)
+        if (!result.edits.includes('minecraft:glass')) throw new Error('照明下でeditsを追加できませんでした')
+      }
+      const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
       await writeFile(join(output, `${preset.name}.png`), Buffer.from(image.data, 'base64'))
+      if (result.edits) {
+        await evaluate(`document.querySelector('#edit-list li button:last-child').click()`)
+        if (await evaluate(`document.querySelectorAll('#edit-list li').length`)) throw new Error('editsを取り消せませんでした')
+      }
       results.push({ name: preset.name, ...result })
     }
     const byName = Object.fromEntries(results.map(result => [result.name, result]))

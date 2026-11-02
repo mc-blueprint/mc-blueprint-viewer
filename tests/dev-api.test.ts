@@ -56,3 +56,19 @@ it.each(['test/%2e%2e%5cscene.gz', 'test/%2e%2e%2f%2e%2e%2fscene.gz', 'test/C:%5
 it('キャッシュ内のリンクからキャッシュ外を参照できない', async () => {
   expect((await fetch(`${base}/api/assets/test/link/secret.json`, { headers: auth })).status).toBe(403)
 })
+it('editsを保存し、再生成イベントを認証付きSSEで配信する', async () => {
+  const eventResponse = await fetch(`${base}/api/events`, { headers: auth })
+  expect(eventResponse.headers.get('content-type')).toContain('text/event-stream')
+  const reader = eventResponse.body!.getReader()
+  await reader.read()
+  const saved = await fetch(`${base}/api/edits`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ formatVersion: 1, scene: 'sha', edits: [] }) })
+  expect(saved.status).toBe(204)
+  expect((await fetch(`${base}/api/regenerate`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' } })).status).toBe(202)
+  const event = await reader.read()
+  expect(new TextDecoder().decode(event.value)).toContain('event: scene-updated')
+  await reader.cancel()
+})
+it('edits APIはJSON種別と本文サイズを制限する', async () => {
+  expect((await fetch(`${base}/api/edits`, { method: 'POST', headers: auth, body: '{}' })).status).toBe(415)
+  expect((await fetch(`${base}/api/edits`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: ' '.repeat(1024 * 1024 + 1) })).status).toBe(413)
+})

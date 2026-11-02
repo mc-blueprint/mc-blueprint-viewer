@@ -13,7 +13,7 @@
 
 ## 状態
 
-scene 読み込み・開発用 API と、通常ブロックのチャンクメッシュ・テクスチャ・カメラ操作・断面・階表示、Worker による空の光・ブロック光、スムースライティング・AO・太陽の影・明るさ・時刻を実装済み。左ドラッグで回転、右ドラッグで移動、ホイールで拡大する。断面上限と階は scene ローカルの Y（0始まり・両端を含む）で指定する。特殊描画は #4、選択・edits は #6 で追加する。
+scene 読み込み・開発用 API と、通常ブロックのチャンクメッシュ・テクスチャ・カメラ操作・断面・階表示、Worker による空の光・ブロック光、スムースライティング・AO・太陽の影・明るさ・時刻、ブロック・範囲選択と edits の作成・保存・再生成要求を実装済み。左ドラッグで回転、右ドラッグで移動、ホイールで拡大する。断面上限と階は scene ローカルの Y（0始まり・両端を含む）で指定する。特殊描画は #4 で追加する。
 
 Minecraft の jar・テクスチャ・モデルはこのリポジトリと配布物に含めない。テクスチャは利用者の端末で mc-blueprint が展開したものを読む。
 
@@ -39,7 +39,7 @@ $env:VIEWER_SCENE = '.dev-scenes/castle.scene.json.gz'
 npm run dev
 ```
 
-開発 API は `/api/scene` から選択した gzip、`/api/assets/<版>/assets/minecraft/<path>` からキャッシュ内の JSON / PNG を返す。gzip 本体には Content-Encoding を付けない。本番サーバーが HTTP の Content-Encoding で展開した JSON もローダーは受け付ける。POST・SSE はこの開発模擬の対象外。
+開発 API は `/api/scene` から選択した gzip、`/api/assets/<版>/assets/minecraft/<path>` からキャッシュ内の JSON / PNG を返す。gzip 本体には Content-Encoding を付けない。本番サーバーが HTTP の Content-Encoding で展開した JSON もローダーは受け付ける。edits の POST はメモリ上へ保存し、再生成要求では SSE で再読み込みを通知する。ファイル保存・実際の再生成は本番サーバーの責務。
 
 ## 後続Issueの境界
 
@@ -49,7 +49,7 @@ npm run dev
 | src/mesh/ | #2。モデル解決・アトラス・チャンクメッシュと常駐管理。[接続契約](docs/mesh.md)、重み付き選択・uvlock の補完は decisions.md を参照 |
 | src/light/ | #3。光計算・Worker・頂点光・マテリアル・太陽。palette の emission / opacity と復号済み配列を読む |
 | src/special/ | #4 で追加。fluid / entity と blockEntities の描画 |
-| src/ui/ | #6 で追加。選択・生成元・edits。LoadedScene.sha256 を edits.scene に使う |
+| src/ui/ | #6。選択・生成元・edits。LoadedScene.sha256 を edits.scene に使う |
 | scripts/、schema/、tests/scene.test.ts | #1 の開発基盤。後続は自分の領域にテストを追加する |
 | src/main.ts / src/style.css | 起動・画面の接続点。複数担当で同時編集せずメインが統合担当を決める |
 
