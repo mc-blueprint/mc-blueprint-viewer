@@ -20,6 +20,10 @@ scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/vox
 
 特殊描画は同じ LoadedScene を読む別 Group とする。`Slice { minY, maxY }` は表示するブロックの Y 範囲（両端を含む）。上限だけなら minY=0、単一階なら minY=maxY。`MeshWorld.update(camera.position, slice)` の呼出しと同じ範囲を特殊描画へ渡す。断面外の隣接ブロックは面省略に使わず、切断面を復元する。
 
+流体の水源は上に同じ流体がなければ高さ 8/9、上に続く場合は 1 とし、level 1〜7 は `(8 - level) / 8` で近似する。四隅の高さの平均や流向による傾斜は計算しない。チェストの通常・trapped は単体／左右で各専用テクスチャを選び、ender chest は単体テクスチャを使う。
+
+`SpecialWorld` は `loadLight` の `LightVolume` と共有ライトマップを受け取り、新しい fluid / entity geometry ごとに `lightVertices` を適用する。特殊頂点にも owner の `blockPosition` と `light` を設定し、`lightMaterial` を共有する。発光ブロックの光も LightVolume から反映する。
+
 ## #6: レイとブロック座標
 
 `Raycaster.intersectObject(meshes.group, true)` の命中を `blockFromIntersection(hit)` に渡すと、三角形を所有するブロックの整数 `[x,y,z]` が得られる。階段・柵の細い面、チャンク境界でも丸め誤差を避けられる。透明 PNG の穴自体の命中判定は行わない。

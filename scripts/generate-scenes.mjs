@@ -24,6 +24,8 @@ const palette = [
   entry('red_bed[facing=north,part=head,occupied=false]', 'entity', 0),
   entry('torch', 'model', 0, 'none', 14),
   entry('chorus_plant[down=false,east=true,north=false,south=false,up=false,west=true]', 'model', 0),
+  entry('chest[facing=north,type=left,waterlogged=false]', 'entity'),
+  entry('chest[facing=north,type=right,waterlogged=false]', 'entity'),
 ]
 
 /** Mojang のモデル・画像を含まない、決定的な性能測定用sceneを作る。 */
@@ -35,12 +37,14 @@ export function makeScene(name = 'representative', size = name === 'representati
   function block(x, y, z) {
     if (name === 'representative') {
       if (y === 0) return 1
+      if (x === 19 && z === 3 && y === 1) return 11
       if (z === 3 && x >= 2 && x <= 22 && x % 2 === 0) {
-        const exhibits = [6, 7, 8, 9, 4, 5, 3, 7, 11, 12, 13]
+        const exhibits = [6, 7, 8, 9, 4, 5, 3, 7, 12, 17, 13]
         const id = exhibits[(x - 2) / 2]
         if (y === 1) return id
         if (y === 2 && id === 9) return 10
       }
+      if (x === 21 && z === 3 && y === 1) return 18
       if (x === 22 && z === 2 && y === 1) return 14
       if (x === 24 && z === 3 && y === 1) return 15
       if (x === 26 && z === 3 && y === 1) return 16
@@ -78,7 +82,10 @@ export function makeScene(name = 'representative', size = name === 'representati
       sources.writeUInt32LE(id ? 1 : 0, index * 4)
       index++
       occupied ||= id !== 0
-      if (palette[id].render === 'entity') entities.push({ at: [cx + x, cy + y, cz + z], id: `minecraft:${id === 12 ? 'chest' : 'bed'}` })
+      if (palette[id].render === 'entity') {
+        const block = palette[id].state.split('[')[0].split(':').at(-1)
+        entities.push({ at: [cx + x, cy + y, cz + z], id: block.endsWith('_bed') ? 'minecraft:bed' : 'minecraft:chest' })
+      }
     }
     if (occupied) chunks.push({ at: [cx, cy, cz], blocks: blocks.toString('base64'), sources: sources.toString('base64') })
   }

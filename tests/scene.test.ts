@@ -63,8 +63,8 @@ describe('固定 scene', () => {
     expect(loaded.document.size).toEqual(scene.size)
     if (name === 'representative') {
       const used = new Set(loaded.chunks.flatMap(chunk => [...chunk.blocks]))
-      for (const id of [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16]) expect(used.has(id)).toBe(true)
-      expect(loaded.document.blockEntities).toHaveLength(3)
+      for (const id of [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18]) expect(used.has(id)).toBe(true)
+      expect(loaded.document.blockEntities).toHaveLength(5)
     }
   })
   it('最大サイズ 256×128×256 の城を読み込める', async () => {
