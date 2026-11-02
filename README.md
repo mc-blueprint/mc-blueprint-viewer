@@ -13,6 +13,62 @@
 
 ## 状態
 
-設計段階。Minecraft の jar・テクスチャ・モデルはこのリポジトリと配布物に含めない。テクスチャは利用者の端末で mc-blueprint が展開したものを読む。
+Issue #1 の雛形・scene 読み込み・開発用 API を実装済み。画面には検証した scene の範囲を表示する。ブロックメッシュは #2、光は #3、特殊描画は #4、選択・edits は #6 で追加する。
+
+Minecraft の jar・テクスチャ・モデルはこのリポジトリと配布物に含めない。テクスチャは利用者の端末で mc-blueprint が展開したものを読む。
+
+## 開発
+
+Node 24.x / npm 11.x を使う。依存は版を固定している（選定・ライセンスは [docs/decisions.md](docs/decisions.md)）。
+
+```powershell
+npm ci
+npm run fixtures
+npm run assets -- 1.21.11
+npm run dev
+```
+
+表示された `http://127.0.0.1:<port>/` を開く。開発時の API 認証は `Bearer development`。本番では起動 URL の `#token=<token>` から読み取る。ビルド済み viewer 自体はサーバーを起動しない。
+
+`npm run assets -- <版> [ローカルclient.jarの絶対パス]` は、1.21.11 では既存の `%APPDATA%\.minecraft\versions\1.21.11\1.21.11.jar` を読む。他版でパスを省略すると公式 version manifest から client jar を取得し、公式の SHA-1 と照合して `%LOCALAPPDATA%\mc-blueprint\cache\jars\` に保存する。ローカルjarでは SHA-1 を計算して記録する。アセットは `cache\assets\<版>\assets\minecraft\...`、出所・SHA-1・展開日時は同階層の manifest.json。既存manifestとSHA-1が異なる場合は上書きしない。途中失敗した `<版>.tmp-<pid>` は保全されるため、確認してから手動で整理する。
+
+`npm run fixtures -- <版>`（既定 1.21.11）は `.dev-scenes/` に representative / castle / town / terrain / underground / vegetation の gzip scene を作る。Mojang の資産は含まない。representative は階段・柵・ガラス板・上下ドア・葉・水・横向きログ・multipart・重み付き chorus plant・チェスト・頭足のあるベッド・光源を含む。残り5場面は 256×128×256。測定条件は [docs/performance.md](docs/performance.md)。
+
+```powershell
+$env:VIEWER_SCENE = '.dev-scenes/castle.scene.json.gz'
+npm run dev
+```
+
+開発 API は `/api/scene` から選択した gzip、`/api/assets/<版>/assets/minecraft/<path>` からキャッシュ内の JSON / PNG を返す。gzip 本体には Content-Encoding を付けない。本番サーバーが HTTP の Content-Encoding で展開した JSON もローダーは受け付ける。POST・SSE はこの開発模擬の対象外。
+
+## 後続Issueの境界
+
+| 場所 | 責務・担当 |
+|---|---|
+| src/scene/ | #1。SceneDocument / LoadedScene / DecodedChunk、loadScene、fetchScene / fetchAsset を公開 |
+| src/mesh/ | #2 で追加。モデル解決・アトラス・チャンクメッシュ。重み付き選択・uvlock の補完は decisions.md を参照 |
+| src/light/ | #3 で追加。光計算・Worker。palette の emission / opacity と復号済み配列を読む |
+| src/special/ | #4 で追加。fluid / entity と blockEntities の描画 |
+| src/ui/ | #6 で追加。選択・生成元・edits。LoadedScene.sha256 を edits.scene に使う |
+| scripts/、schema/、tests/scene.test.ts | #1 の開発基盤。後続は自分の領域にテストを追加する |
+| src/main.ts / src/style.css | 起動・画面の接続点。複数担当で同時編集せずメインが統合担当を決める |
+
+上記の後続ディレクトリは各Issueで作る。DecodedChunk.size は端を切り詰めた実寸で、配列は `(y * size[2] + z) * size[0] + x`。省略チャンクは空気、sources の0は不明。座標は scene ローカル、origin は元データでの最小コーナー。生成元の表示には document.sources を参照する。
+
+`fetchAsset(version, path)` は Bearer 認証付き Response を返す。JSON は response.json()、画像は response.blob() と createImageBitmap() を使う（img.src の直指定では認証ヘッダーが付かない）。失敗時は例外となるため呼出し側で表示する。
+
+## 検証・配布
+
+```powershell
+npm run lint
+npm test
+npm run build
+npm run benchmark:scene
+npm run smoke
+```
+
+smoke は別プロファイルのヘッドレス Edge で scene 読み込みと WebGL 初期化を確認する。既存ブラウザの画面には触れない。別の Chromium を使う場合は VIEWER_BROWSER に実行ファイルの絶対パスを設定する。
+
+dist/ の静的ファイルと THIRD_PARTY_LICENSES.txt を mc-blueprint のサーバーから配信する。schema の出所は [schema/README.md](schema/README.md)。アセット展開スクリプト・開発 API・固定 scene・node_modules は配布しない。CI ワークフローは追加していない。
 
 本プロジェクトは非公式で、Mojang Studios・Microsoft とは関係ありません。
