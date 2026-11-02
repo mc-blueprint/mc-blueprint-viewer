@@ -26,6 +26,7 @@ const palette = [
   entry('chorus_plant[down=false,east=true,north=false,south=false,up=false,west=true]', 'model', 0),
   entry('chest[facing=north,type=left,waterlogged=false]', 'entity'),
   entry('chest[facing=north,type=right,waterlogged=false]', 'entity'),
+  entry('lava[level=0]', 'fluid', 0, 'none', 15),
 ]
 
 /** Mojang のモデル・画像を含まない、決定的な性能測定用sceneを作る。 */
@@ -48,6 +49,7 @@ export function makeScene(name = 'representative', size = name === 'representati
       if (x === 22 && z === 2 && y === 1) return 14
       if (x === 24 && z === 3 && y === 1) return 15
       if (x === 26 && z === 3 && y === 1) return 16
+      if (x === 28 && z === 3 && y === 1) return 19
       return 0
     }
     const height = 12 + Math.floor(6 * Math.sin(x / 19) * Math.cos(z / 23))

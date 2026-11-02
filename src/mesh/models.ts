@@ -132,7 +132,12 @@ export function shapeOf(faces: ModelFace[]): ModelShape {
   return { faces, solid }
 }
 
-/** render:model の palette だけを読む。取得・モデル解決の失敗は呼出し側へ返す。 */
+/** 26.2/26.3のベッドはentity指定でも公式の通常モデルを使う。scene自体は変更しない。 */
+export function usesBlockModel(entry: PaletteEntry, version: string) {
+  return entry.render === 'model' || (entry.render === 'entity' && (version === '26.2' || version === '26.3') && entry.state.split('[')[0].endsWith('_bed'))
+}
+
+/** 通常モデルのpaletteを読む。取得・モデル解決の失敗は呼出し側へ返す。 */
 export async function loadModels(palette: PaletteEntry[], version: string) {
   const models = new Map<string, Promise<ModelJson>>()
   const used = new Set<string>()
@@ -146,7 +151,7 @@ export async function loadModels(palette: PaletteEntry[], version: string) {
     return models.get(id)!
   }
   const entries = await Promise.all(palette.map(async entry => {
-    if (entry.render !== 'model') return undefined
+    if (!usesBlockModel(entry, version)) return undefined
     const [name, properties] = entry.state.replace(']', '').split('[')
     const props = Object.fromEntries(properties ? properties.split(',').map(p => p.split('=')) : [])
     const data: Definition = await (await fetchAsset(version, assetPath(name, 'blockstates'))).json()

@@ -7,7 +7,7 @@ import { cacheRoot } from './dev-api.mjs'
 const version = process.argv[2] ?? '1.21.11'
 if (!/^[a-zA-Z0-9][\w.-]*$/.test(version) || version.includes('..')) throw new Error('版が不正です')
 const cache = cacheRoot()
-const local = process.argv[3] ?? (version === '1.21.11' ? join(process.env.APPDATA, '.minecraft', 'versions', version, `${version}.jar`) : undefined)
+const local = process.argv[3] === '--official' ? undefined : process.argv[3] ?? (version === '1.21.11' ? join(process.env.APPDATA, '.minecraft', 'versions', version, `${version}.jar`) : undefined)
 let jar, source, expected
 async function readOptional(path) {
   try { return await readFile(path) } catch (error) {
