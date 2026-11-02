@@ -4,6 +4,7 @@ import { fetchScene } from './scene/api'
 import { loadModels } from './mesh/models'
 import { createAtlas } from './mesh/atlas'
 import { MeshWorld } from './mesh/world'
+import { mountSelectionUI } from './ui/viewer'
 import './style.css'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
@@ -26,6 +27,7 @@ try {
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
   const controls = new OrbitControls(camera, renderer.domElement)
+  mountSelectionUI(loaded, meshes, camera, renderer.domElement)
   controls.target.copy(size).multiplyScalar(0.5)
   controls.update()
   const panel = document.createElement('div')
