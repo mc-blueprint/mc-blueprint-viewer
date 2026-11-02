@@ -13,7 +13,7 @@
 
 ## 状態
 
-scene 読み込み・開発用 API と、通常ブロックのチャンクメッシュ・テクスチャ・カメラ操作・断面・階表示を実装済み。左ドラッグで回転、右ドラッグで移動、ホイールで拡大する。断面上限と階は scene ローカルの Y（0始まり・両端を含む）で指定する。光は #3、特殊描画は #4、選択・edits は #6 で追加する。
+scene 読み込み・開発用 API と、通常ブロックのチャンクメッシュ・テクスチャ・カメラ操作・断面・階表示、Worker による空の光・ブロック光、スムースライティング・AO・太陽の影・明るさ・時刻を実装済み。左ドラッグで回転、右ドラッグで移動、ホイールで拡大する。断面上限と階は scene ローカルの Y（0始まり・両端を含む）で指定する。特殊描画は #4、選択・edits は #6 で追加する。
 
 Minecraft の jar・テクスチャ・モデルはこのリポジトリと配布物に含めない。テクスチャは利用者の端末で mc-blueprint が展開したものを読む。
 
@@ -47,7 +47,7 @@ npm run dev
 |---|---|
 | src/scene/ | #1。SceneDocument / LoadedScene / DecodedChunk、loadScene、fetchScene / fetchAsset を公開 |
 | src/mesh/ | #2。モデル解決・アトラス・チャンクメッシュと常駐管理。[接続契約](docs/mesh.md)、重み付き選択・uvlock の補完は decisions.md を参照 |
-| src/light/ | #3 で追加。光計算・Worker。palette の emission / opacity と復号済み配列を読む |
+| src/light/ | #3。光計算・Worker・頂点光・マテリアル・太陽。palette の emission / opacity と復号済み配列を読む |
 | src/special/ | #4 で追加。fluid / entity と blockEntities の描画 |
 | src/ui/ | #6 で追加。選択・生成元・edits。LoadedScene.sha256 を edits.scene に使う |
 | scripts/、schema/、tests/scene.test.ts | #1 の開発基盤。後続は自分の領域にテストを追加する |
@@ -66,9 +66,10 @@ npm run build
 npm run benchmark:scene
 npm run benchmark:mesh
 npm run smoke
+node scripts/verify-light.mjs
 ```
 
-smoke は別プロファイルのヘッドレス Edge でメッシュ準備完了を確認する。benchmark:mesh は5場面を各3回測定し、代表場面の撮影と断面・階表示も検査する（`-- --representative` で代表場面だけ、`-- --scene=castle` などで1場面だけ）。画像と生データは OS の一時ディレクトリへ保存し、リポジトリに含めない。既存ブラウザの画面には触れない。別の Chromium を使う場合は VIEWER_BROWSER に実行ファイルの絶対パスを設定する。
+smoke は別プロファイルのヘッドレス Edge でメッシュ準備完了を確認する。benchmark:mesh は5場面を各3回測定し、代表場面の撮影と断面・階表示も検査する（`-- --representative` で代表場面だけ、`-- --scene=castle` などで1場面だけ）。verify-light は1.21.11の代表場面で昼夜・ブロック光の有無・明るさ・品質ごとの影を撮影・画素比較し、再構築したメッシュの光属性も検査する。画像と生データは OS の一時ディレクトリへ保存し、リポジトリに含めない。既存ブラウザの画面には触れない。別の Chromium を使う場合は VIEWER_BROWSER に実行ファイルの絶対パスを設定する。
 
 dist/ の静的ファイルと THIRD_PARTY_LICENSES.txt を mc-blueprint のサーバーから配信する。schema の出所は [schema/README.md](schema/README.md)。アセット展開スクリプト・開発 API・固定 scene・node_modules は配布しない。CI ワークフローは追加していない。
 
