@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeScene } from '../scripts/generate-scenes.mjs'
 import type { LoadedScene } from '../src/scene/types'
-import { chestSides, chestTexture, fluidHeight, specialTextures, unsupportedEntityIds, visibleFluidSides } from '../src/special/world'
+import { bedUV, chestSides, chestTexture, fluidHeight, specialTextures, unsupportedEntityIds, visibleFluidSides } from '../src/special/world'
 
 function loadedFixture(): LoadedScene {
   const document = makeScene()
@@ -48,6 +48,14 @@ describe('チェストのassetと向き', () => {
 
   it('向きごとに前面を向ける面順を返す', () => {
     expect(['north', 'east', 'south', 'west'].map(facing => chestSides(facing)[0])).toEqual(['north', 'east', 'south', 'west'])
+  })
+})
+
+describe('ベッドの状態と向き', () => {
+  it('facingごとにUVの向きを回し、headとfootで上面の領域を分ける', () => {
+    const directions = ['north', 'east', 'south', 'west']
+    expect(new Set(directions.map(facing => JSON.stringify(bedUV('up', facing, 'head')))).size).toBe(4)
+    expect(bedUV('up', 'north', 'head')).not.toEqual(bedUV('up', 'north', 'foot'))
   })
 })
 

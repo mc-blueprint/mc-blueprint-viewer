@@ -99,6 +99,14 @@ export function chestSides(facing: string) {
   return sides[facing] ?? sides.north
 }
 
+export function bedUV(side: string, facing: string, part: string) {
+  const turn = ({ north: 0, east: 1, south: 2, west: 3 } as Record<string, number>)[facing] ?? 0
+  const top = side === 'up'
+  const region = textureRegion(top ? part === 'head' ? 0 : 16 : 0, top || side === 'down' ? 0 : 16,
+    16, top || side === 'down' ? 16 : 4)
+  return region.map((_, index) => region[(index + turn) % region.length])
+}
+
 function isChestEntity(id: string) {
   return [':chest', ':trapped_chest', ':ender_chest'].some(suffix => id.endsWith(suffix))
 }
@@ -188,9 +196,10 @@ export class SpecialWorld {
       } else if (isBedEntity(id)) {
         const blockId = blockState.split('[')[0].split(':').at(-1) ?? ''
         const color = blockId.endsWith('_bed') ? blockId.slice(0, -4) : 'red'
+        const bedState = state(blockState)
         quads.push(...faces.map(face => ({ at: [x, y, z] as Vec3,
           points: face.points.map(p => [p[0], p[1] * 9 / 16, p[2]]), tile: bedTexture(color),
-          uv: textureRegion(0, face.side === 'up' || face.side === 'down' ? 0 : 16, 16, face.side === 'up' || face.side === 'down' ? 16 : 4) })))
+          uv: bedUV(face.side, bedState.facing ?? 'north', bedState.part ?? 'foot') })))
       } else {
         unknownBoxes.push({ at: [x + 0.1, y + 0.1, z + 0.1], owner: [x, y, z] })
       }
