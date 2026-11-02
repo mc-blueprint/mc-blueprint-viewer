@@ -1,0 +1,39 @@
+{
+  "name": "mc-blueprint-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x",
+    "npm": "11.x"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "build": "tsc --noEmit && vite build && node scripts/licenses.mjs",
+    "fixtures": "node scripts/generate-scenes.mjs",
+    "assets": "node scripts/extract-assets.mjs",
+    "benchmark:scene": "node scripts/benchmark-scene.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "deepslate": "0.27.2",
+    "three": "0.187.0"
+  },
+  "overrides": {
+    "minimatch": "11.0.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.10.1",
+    "@types/three": "0.187.0",
+    "eslint": "10.14.0",
+    "fflate": "0.8.3",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
