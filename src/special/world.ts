@@ -1,7 +1,11 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial } from 'three'
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial } from 'three'
+import type { DataTexture } from 'three'
 import type { LoadedScene, Vec3 } from '../scene/types'
 import type { Atlas } from '../mesh/atlas'
 import { BlockAccess, type Slice } from '../mesh/chunk'
+import { lightMaterial } from '../light/material'
+import { lightVertices } from '../light/vertices'
+import type { LightVolume } from '../light/propagation'
 
 const water = 'minecraft:block/water_still'
 const lava = 'minecraft:block/lava_still'
@@ -18,7 +22,7 @@ const faces = [
 ] as const
 
 function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: number[][]; color?: Vec3 }[], atlas: Atlas) {
-  const positions: number[] = [], uvs: number[] = [], colors: number[] = [], indices: number[] = []
+  const positions: number[] = [], uvs: number[] = [], colors: number[] = [], owners: number[] = [], indices: number[] = []
   for (const quad of quads) {
     const tile = atlas.tiles.get(quad.tile)
     if (!tile) continue
@@ -28,6 +32,7 @@ function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: numb
       const uv = quad.uv?.[i] ?? [[0, 0], [0, 1], [1, 1], [1, 0]][i]
       uvs.push(tile.u + uv[0] * tile.width, tile.v + uv[1] * tile.height)
       colors.push(...(quad.color ?? [1, 1, 1]))
+      owners.push(...quad.at)
     })
     indices.push(start, start + 1, start + 2, start, start + 2, start + 3)
   }
@@ -35,6 +40,8 @@ function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: numb
   result.setAttribute('position', new Float32BufferAttribute(positions, 3))
   result.setAttribute('uv', new Float32BufferAttribute(uvs, 2))
   result.setAttribute('color', new Float32BufferAttribute(colors, 3))
+  result.setAttribute('blockPosition', new Float32BufferAttribute(owners, 3))
+  result.setAttribute('light', new Float32BufferAttribute(Array(positions.length / 3).fill([15, 0, 1]).flat(), 3))
   result.setIndex(indices)
   result.computeVertexNormals()
   return result
@@ -44,14 +51,17 @@ function textureRegion(x: number, y: number, width: number, height: number) {
   return [[x / 64, y / 64], [x / 64, (y + height) / 64], [(x + width) / 64, (y + height) / 64], [(x + width) / 64, y / 64]]
 }
 
-function boxGeometry(at: Vec3) {
+function boxGeometry(at: Vec3, owner: Vec3) {
   const positions = faces.flatMap(face => face.points.flatMap(point => point.map((v, axis) => at[axis] + v * 0.8)))
+  const owners = faces.flatMap(face => face.points.flatMap(() => owner))
   const indices = faces.flatMap((_, face) => {
     const start = face * 4
     return [start, start + 1, start + 2, start, start + 2, start + 3]
   })
   const result = new BufferGeometry()
   result.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  result.setAttribute('blockPosition', new Float32BufferAttribute(owners, 3))
+  result.setAttribute('light', new Float32BufferAttribute(Array(positions.length / 3).fill([15, 0, 1]).flat(), 3))
   result.setIndex(indices)
   result.computeVertexNormals()
   return result
@@ -105,15 +115,17 @@ export function unsupportedEntityIds(ids: string[]) {
 export class SpecialWorld {
   readonly group = new Group()
   private access: BlockAccess
-  private material: MeshBasicMaterial
-  private unknownMaterial = new MeshBasicMaterial({ color: 0xc080b0 })
+  private material: MeshLambertMaterial
+  private unknownMaterial: MeshLambertMaterial
   private mesh?: Mesh
   private unknownMeshes: Mesh[] = []
   private unsupported = new Set<string>()
 
-  constructor(private loaded: LoadedScene, private atlas: Atlas) {
+  constructor(private loaded: LoadedScene, private atlas: Atlas, private light: LightVolume, lightTexture: DataTexture) {
     this.access = new BlockAccess(loaded)
-    this.material = new MeshBasicMaterial({ map: atlas.texture, vertexColors: true, transparent: true, alphaTest: 0.01, side: 2 })
+    const material = { map: atlas.texture, vertexColors: true, transparent: true, alphaTest: 0.01, depthWrite: false, side: 2 as const }
+    this.material = lightMaterial(material, lightTexture)
+    this.unknownMaterial = lightMaterial({ color: 0xc080b0 }, lightTexture)
   }
 
   get unsupportedEntities() { return [...this.unsupported].sort() }
@@ -130,7 +142,7 @@ export class SpecialWorld {
     this.unknownMeshes = []
     const { palette, size } = this.loaded.document
     const quads: { at: Vec3; points: number[][]; tile: string; uv?: number[][]; color?: Vec3 }[] = []
-    const unknownBoxes: Vec3[] = []
+    const unknownBoxes: { at: Vec3; owner: Vec3 }[] = []
     for (let y = slice.minY; y <= Math.min(slice.maxY, size[1] - 1); y++) {
       for (let z = 0; z < size[2]; z++) for (let x = 0; x < size[0]; x++) {
         const id = this.access.block(x, y, z), entry = palette[id]
@@ -180,14 +192,17 @@ export class SpecialWorld {
           points: face.points.map(p => [p[0], p[1] * 9 / 16, p[2]]), tile: bedTexture(color),
           uv: textureRegion(0, face.side === 'up' || face.side === 'down' ? 0 : 16, 16, face.side === 'up' || face.side === 'down' ? 16 : 4) })))
       } else {
-        unknownBoxes.push([x + 0.1, y + 0.1, z + 0.1])
+        unknownBoxes.push({ at: [x + 0.1, y + 0.1, z + 0.1], owner: [x, y, z] })
       }
     }
     this.unsupported = new Set(unsupportedEntityIds(this.loaded.document.blockEntities.map(item => item.id)))
-    this.mesh = new Mesh(geometry(quads, this.atlas), this.material)
+    const specialGeometry = geometry(quads, this.atlas)
+    lightVertices(specialGeometry, this.light, slice)
+    this.mesh = new Mesh(specialGeometry, this.material)
     this.group.add(this.mesh)
-    for (const at of unknownBoxes) {
-      const box = boxGeometry(at)
+    for (const { at, owner } of unknownBoxes) {
+      const box = boxGeometry(at, owner)
+      lightVertices(box, this.light, slice)
       const unknown = new Mesh(box, this.unknownMaterial)
       this.unknownMeshes.push(unknown)
       this.group.add(unknown)

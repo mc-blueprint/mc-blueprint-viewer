@@ -1,10 +1,15 @@
-import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { fetchScene } from './scene/api'
 import { loadModels } from './mesh/models'
 import { createAtlas } from './mesh/atlas'
 import { MeshWorld } from './mesh/world'
 import { SpecialWorld, specialTextures } from './special/world'
+import { loadLight } from './light/load'
+import { lightVertices } from './light/vertices'
+import { createLighting } from './light/environment'
+import { lightMaterial } from './light/material'
+import { mountSelectionUI } from './ui/viewer'
 import './style.css'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
@@ -16,19 +21,25 @@ try {
   const renderer = new WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
   viewport.append(renderer.domElement)
-  status.textContent = 'モデルとテクスチャを読み込んでいます…'
-  const models = await loadModels(scene.palette, scene.minecraftVersion)
+  status.textContent = 'モデル・テクスチャ・光を読み込んでいます…'
+  const [light, models] = await Promise.all([loadLight(loaded), loadModels(scene.palette, scene.minecraftVersion)])
   const atlas = await createAtlas([...new Set([...models.textures, ...specialTextures(loaded)])], scene.minecraftVersion, renderer.capabilities.maxTextureSize)
-  const meshes = new MeshWorld(loaded, models.entries, atlas)
-  const specials = new SpecialWorld(loaded, atlas)
   const world = new Scene()
-  world.background = new Color(0x93b9d2)
+  const lighting = createLighting(world, renderer, scene)
+  const meshes = new MeshWorld(loaded, models.entries, atlas, undefined, {
+    material: layer => lightMaterial({ map: atlas.texture, vertexColors: true,
+      transparent: layer === 'translucent', alphaTest: layer === 'opaque' ? 0 : layer === 'cutout' ? 0.5 : 0.01,
+      depthWrite: layer !== 'translucent' }, lighting.texture),
+    apply: (geometry, slice) => lightVertices(geometry, light, slice),
+  })
+  const specials = new SpecialWorld(loaded, atlas, light, lighting.texture)
   world.add(meshes.group)
   world.add(specials.group)
   const size = new Vector3(...scene.size)
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
   const controls = new OrbitControls(camera, renderer.domElement)
+  mountSelectionUI(loaded, meshes, camera, renderer.domElement)
   controls.target.copy(size).multiplyScalar(0.5)
   controls.update()
   const panel = document.createElement('div')
@@ -92,7 +103,7 @@ try {
     lastFrame = now
     renderer.render(world, camera)
   })
-  Object.assign(window, { viewer: { loaded, meshes, specials, camera, controls, renderer,
+  Object.assign(window, { viewer: { loaded, meshes, specials, camera, controls, renderer, light,
     get ready() { return ready },
     get metrics() { return { ...meshes.stats, frames, fps: 1000 / (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length) } },
   } })

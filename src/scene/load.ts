@@ -1,8 +1,5 @@
-import { Ajv2020 } from 'ajv/dist/2020.js'
-import schema from '../../schema/scene.schema.json'
-import type { LoadedScene, SceneDocument, Vec3 } from './types'
-
-const validate = new Ajv2020({ strict: false, allErrors: true }).compile<SceneDocument>(schema)
+import { validateScene } from '../schema/validate'
+import type { LoadedScene, Vec3 } from './types'
 
 function decode(data: string, count: number, width: 16 | 32) {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
@@ -18,7 +15,7 @@ function decode(data: string, count: number, width: 16 | 32) {
 
 /** スキーマとチャンクの意味制約を検証し、実寸・リトルエンディアンの配列に展開する。不正な入力は例外。 */
 export function decodeScene(input: unknown) {
-  if (!validate(input)) throw new Error(`scene のスキーマ違反: ${JSON.stringify(validate.errors)}`)
+  if (!validateScene(input)) throw new Error(`scene のスキーマ違反: ${JSON.stringify(validateScene.errors)}`)
   const document = input
   if (document.indexWidth !== (document.palette.length > 65536 ? 32 : 16)) throw new Error('palette と indexWidth が一致しません')
   const ids = new Set(document.sources.map(source => source.id))

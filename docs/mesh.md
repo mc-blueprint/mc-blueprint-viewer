@@ -8,15 +8,21 @@
 
 `buildChunk` の BufferGeometry はインデックス付き（1面4頂点・2三角形）。`position` と `blockPosition` は scene ローカル座標、`normal` は面の法線、`uv` はアトラス内の座標、`color` は tint 適用済みの線形 RGB。
 
-`light` は Float32 の3成分で `[sky, block, ao]`（それぞれ 0〜15、0〜15、0〜1）。初期値は `[15, 0, 1]`。#3 は各頂点の属性を書き換え `needsUpdate = true` とし、光を使うマテリアルへ接続する。現時点の MeshBasicMaterial はこの属性を消費しない。位置・法線・所有ブロックを使って面の外側をサンプリングできる。メッシュはカメラ移動・断面変更で作り直されるため、新しい geometry にも光を設定する必要がある。
+`light` は Float32 の3成分で `[sky, block, ao]`（それぞれ 0〜15、0〜15、0〜1）。初期値は `[15, 0, 1]`。#3 の `lightVertices` が頂点の属性を書き換え `needsUpdate = true` とし、`lightMaterial` がライトマップ・面の向き・AO・太陽の影を合成する。tint 適用済みの `color` は保持する。位置・法線・所有ブロックを使って面の外側をサンプリングする。部分モデルは所有ブロックの外側、斜面は主法線軸による近似。カメラ移動・断面変更で作り直した geometry にも `MeshWorld` の第5引数の `apply(geometry, slice)` が適用される。マテリアルは同引数の `material(layer)` で渡す。省略時は従来の MeshBasicMaterial。
 
-`MeshWorld.group` 配下の各チャンク Group がレイヤーごとの three.js Mesh を持つ。#3 の接続では `src/mesh/world.ts`、起動の接続では `src/main.ts` に変更が必要になる。#4・#6 と同時編集しないようメインが担当を調整する。
+`MeshWorld.group` 配下の各チャンク Group がレイヤーごとの three.js Mesh を持つ。不透明・二値アルファの Mesh は影を落とし、全レイヤーが影を受ける。#3 の接続箇所は `src/mesh/world.ts` の第5引数と `src/main.ts` の起動処理。#4 の特殊描画も `loadLight` の結果と `lightMaterial` を再利用できる。`lightVertices` には position / normal / blockPosition / light が必要。
+
+`loadLight(loaded)` は Web Worker で scene 全体を一度計算し、`LightVolume { size, sky, block, opacity }` を返す。各 Uint8Array は `(y * size[2] + z) * size[0] + x` 順、元のブロック配列は転送・変更しない。エラーは起動画面へ返し、光の完了前に ready にしない。上空だけを空の光の流入元とし、直射の15は透明な空気で減衰しない。それ以外は入射先の `max(1, opacity)` で減衰する。ブロック光は不透明な発光体からも伝播する。頂点サンプルは水平の範囲外を端へ固定し、上空はsky=15・block=0、下端は0。断面は元の建物の光を保ち、AOだけ非表示ブロックを除く。
+
+scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/voxel（256×128×256で24MiB）。Worker は計算中に追加で待ち行列とフラグの5 bytes/voxel、および入力のブロック配列のコピーを使う。時刻・明るさ・blockLightはライトマップに反映し、low / auto の影は無効、medium=2048・high=4096。ゲームの光レベルの非線形減衰と明るさの四次補間を使用するが、色味・環境光・斜面AOは近似で、ゲーム画面との同一性は保証しない。
 
 ## #4: 特殊描画と断面
 
 特殊描画は同じ LoadedScene を読む別 Group とする。`Slice { minY, maxY }` は表示するブロックの Y 範囲（両端を含む）。上限だけなら minY=0、単一階なら minY=maxY。`MeshWorld.update(camera.position, slice)` の呼出しと同じ範囲を特殊描画へ渡す。断面外の隣接ブロックは面省略に使わず、切断面を復元する。
 
 流体の水源は上に同じ流体がなければ高さ 8/9、上に続く場合は 1 とし、level 1〜7 は `(8 - level) / 8` で近似する。四隅の高さの平均や流向による傾斜は計算しない。チェストの通常・trapped は単体／左右で各専用テクスチャを選び、ender chest は単体テクスチャを使う。
+
+`SpecialWorld` は `loadLight` の `LightVolume` と共有ライトマップを受け取り、新しい fluid / entity geometry ごとに `lightVertices` を適用する。特殊頂点にも owner の `blockPosition` と `light` を設定し、`lightMaterial` を共有する。発光ブロックの光も LightVolume から反映する。
 
 ## #6: レイとブロック座標
 
