@@ -26,3 +26,16 @@ it('UIが作るreplace・delete・param・noteを正本edits v1スキーマで�
   expect(edits.edits.map(edit => edit.id)).toEqual(['e1', 'e2', 'e3', 'e4'])
   expect(validateEdits(edits)).toBe(true)
 })
+
+it('32³の削除を1件のregionで保存し、1MiB以内に収める', () => {
+  const edits = addEdit(createEdits(loaded), { kind: 'delete', region: [[0, 0, 0], [31, 31, 31]] })
+  expect(validateEdits(edits)).toBe(true)
+  expect(edits.edits).toEqual([{ id: 'e1', kind: 'delete', region: [[0, 0, 0], [31, 31, 31]] }])
+  expect(new TextEncoder().encode(JSON.stringify(edits)).byteLength).toBeLessThan(1024 * 1024)
+})
+
+it('deleteのatとregionの両指定・指定なしを共通スキーマで拒否する', () => {
+  const document = createEdits(loaded)
+  expect(validateEdits({ ...document, edits: [{ id: 'e1', kind: 'delete', at: [0, 0, 0], region: [[0, 0, 0], [1, 1, 1]] }] })).toBe(false)
+  expect(validateEdits({ ...document, edits: [{ id: 'e1', kind: 'delete' }] })).toBe(false)
+})

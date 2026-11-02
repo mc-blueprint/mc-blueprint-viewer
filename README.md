@@ -74,10 +74,16 @@ npm run benchmark:mesh
 npm run smoke
 node scripts/verify-light.mjs
 node scripts/verify-shaders.mjs
+node scripts/verify-selection.mjs
+node scripts/verify-contracts.mjs
 ```
 
 smoke は別プロファイルのヘッドレス Edge でメッシュ準備完了を確認する。benchmark:mesh は5場面を各3回測定し、代表場面の撮影と断面・階表示も検査する（`-- --representative` で代表場面だけ、`-- --scene=castle` などで1場面だけ）。verify-light は1.21.11の代表場面で昼夜・ブロック光の有無・明るさ・品質ごとの影を撮影・画素比較し、再構築したメッシュの光属性も検査する。verify-shaders は同じ代表場面の3プリセットを2視点ずつ撮影し、画素の差・描画エラー・往復切替後のテクスチャ解放を検査する。画像と生データは OS の一時ディレクトリへ保存し、リポジトリに含めない。既存ブラウザの画面には触れない。別の Chromium を使う場合は VIEWER_BROWSER に実行ファイルの絶対パスを設定する。
 
 dist/ の静的ファイルと THIRD_PARTY_LICENSES.txt を mc-blueprint のサーバーから配信する。schema の出所は [schema/README.md](schema/README.md)。アセット展開スクリプト・開発 API・固定 scene・node_modules は配布しない。CI ワークフローは追加していない。
+
+`verify-selection` は外部アセットを使わず、通常ブロックの手前に水・チェスト・旧ベッドを置いた実メッシュをクリックする。生成元表示、置換から削除への編集、編集後の追加と保存、LF / CRLF（読み取り境界での分割を含む）の SSE 更新通知による再読み込みをヘッドレスで検証する。`npm test` は256×128×256の市松状の水についても既定lowの面数上限を確認する。
+
+`verify-contracts` は既存の1.21.11アセットで固定着色の葉を描画し、palette の `tintColor` による頂点色と画素の変化を確認する。32³の範囲を画面で選び、削除・保存・再編集も検証する。範囲削除は両端を含む `delete.region` 1件で保存し、保存前に共通スキーマで検証する。`tint: fixed` の palette には OKLab `[L, a, b]` の `tintColor` が必須。palette 0 は `minecraft:air`・`render: invisible` とし、範囲外・省略チャンクも空気として扱う。
 
 本プロジェクトは非公式で、Mojang Studios・Microsoft とは関係ありません。

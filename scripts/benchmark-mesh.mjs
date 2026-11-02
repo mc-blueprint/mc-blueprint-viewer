@@ -42,15 +42,8 @@ for (const name of names) {
         for (let i = 0; i < 10; i++) { await memory(); await delay(Math.max(0, frameStart + (i + 1) * 1000 - performance.now())) }
         const metrics = await evaluate(`(() => {
           const v = window.viewer;
-          let specialFaces = 0, specialMeshBytes = 0;
-          v.specials.group.traverse(object => {
-            if (!object.isMesh) return;
-            const g = object.geometry;
-            specialFaces += g.index.count / 6;
-            specialMeshBytes += g.index.array.byteLength + Object.values(g.attributes).reduce((sum, a) => sum + a.array.byteLength, 0);
-          });
           const gl = v.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
-          return { ...v.metrics, specialFaces, specialMeshBytes,
+          return { ...v.metrics,
             gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
             quality: v.quality, heapBytes: performance.memory.usedJSHeapSize,
             canvas: [v.renderer.domElement.width, v.renderer.domElement.height] };
@@ -74,7 +67,7 @@ for (const name of names) {
           await evaluate(`document.querySelector('#section').value = '15'; document.querySelector('#section').dispatchEvent(new Event('input')); document.querySelector('#floor').value = '1'; document.querySelector('#floor').dispatchEvent(new Event('change'))`)
           await waitReady(evaluate)
           const floorFaces = await evaluate('window.viewer.metrics.faces')
-          if (sectionFaces !== 1120 || floorFaces !== 135) throw new Error(`断面・階表示の面数が不一致: ${sectionFaces}, ${floorFaces}`)
+          if (sectionFaces !== 1120 || floorFaces !== 235) throw new Error(`断面・階表示の面数が不一致: ${sectionFaces}, ${floorFaces}`)
           console.log(JSON.stringify({ sectionFaces, floorFaces }))
         }
       })
