@@ -89,6 +89,21 @@ describe('モデル・回転', () => {
 })
 
 describe('チャンクメッシュ・後続の境界', () => {
+  it('描画距離外の常駐チャンクを解放し、距離を戻すと再構築する', async () => {
+    const loaded = scene([65, 1, 1], [[0, 0, 0], [64, 0, 0]])
+    const world = new MeshWorld(loaded, [undefined, () => shape], { ...atlas, texture: new CanvasTexture({} as HTMLCanvasElement), bytes: 4 } as Atlas)
+    const camera = new Vector3(0, 0, 0)
+    await world.update(camera)
+    expect(world.stats.chunks).toBe(2)
+    const far = (world.group.children[1].children[0] as Mesh).geometry
+    const dispose = vi.spyOn(far, 'dispose')
+    await world.update(camera, undefined, 16)
+    expect(world.stats.chunks).toBe(1)
+    expect(dispose).toHaveBeenCalledOnce()
+    await world.update(camera)
+    expect(world.stats.chunks).toBe(2)
+    world.dispose()
+  })
   it('チャンク境界の隣接不透明面を両側で省く', () => {
     const loaded = scene([17, 1, 1], [[15, 0, 0], [16, 0, 0]])
     expect(build(loaded).map(c => c.faces)).toEqual([5, 5])

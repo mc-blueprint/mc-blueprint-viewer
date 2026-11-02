@@ -34,10 +34,10 @@ export function lightMap(brightness: number, daylight: number, blockLight: boole
 }
 
 export function shadowResolution(preview: SceneDocument['preview']): number {
-  return !preview.shadows || preview.quality === 'low' || preview.quality === 'auto' ? 0 : preview.quality === 'high' ? 4096 : 2048
+  return !preview.shadows || preview.quality === 'low' ? 0 : preview.quality === 'high' ? 4096 : 2048
 }
 
-/** scene の大きさ全体を太陽のシャドウカメラに含める。low / auto は影を無効にする。 */
+/** scene 全体を影のカメラに含める。auto は2048から開始し、実測によって影を切る。 */
 export function createLighting(world: Scene, renderer: WebGLRenderer, document: SceneDocument) {
   const { preview } = document
   const sun = new DirectionalLight(0xffffff, 1)
@@ -60,5 +60,13 @@ export function createLighting(world: Scene, renderer: WebGLRenderer, document: 
   sun.castShadow = resolution > 0 && state.direction.y > 0
   world.background = state.sky
   const texture = lightMap(preview.brightness, state.daylight, preview.blockLight)
-  return { texture, dispose() { texture.dispose(); sun.shadow.dispose(); world.remove(sun, sun.target) } }
+  const ao = { value: 1 }
+  return { texture, ao,
+    setShadows(enabled: boolean, soft: boolean) {
+      renderer.shadowMap.enabled = enabled && resolution > 0
+      sun.castShadow = renderer.shadowMap.enabled && state.direction.y > 0
+      sun.shadow.radius = soft ? 3 : 1
+    },
+    dispose() { texture.dispose(); sun.shadow.dispose(); world.remove(sun, sun.target) },
+  }
 }

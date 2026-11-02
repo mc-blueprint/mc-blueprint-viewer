@@ -1,5 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial } from 'three'
-import type { DataTexture } from 'three'
+import type { DataTexture, Vector3 } from 'three'
 import type { LoadedScene, Vec3 } from '../scene/types'
 import type { Atlas } from '../mesh/atlas'
 import { BlockAccess, type Slice } from '../mesh/chunk'
@@ -129,16 +129,16 @@ export class SpecialWorld {
   private unknownMeshes: Mesh[] = []
   private unsupported = new Set<string>()
 
-  constructor(private loaded: LoadedScene, private atlas: Atlas, private light: LightVolume, lightTexture: DataTexture) {
+  constructor(private loaded: LoadedScene, private atlas: Atlas, private light: LightVolume, lightTexture: DataTexture, ao = { value: 1 }) {
     this.access = new BlockAccess(loaded)
     const material = { map: atlas.texture, vertexColors: true, transparent: true, alphaTest: 0.01, depthWrite: false, side: 2 as const }
-    this.material = lightMaterial(material, lightTexture)
-    this.unknownMaterial = lightMaterial({ color: 0xc080b0 }, lightTexture)
+    this.material = lightMaterial(material, lightTexture, ao)
+    this.unknownMaterial = lightMaterial({ color: 0xc080b0 }, lightTexture, ao)
   }
 
   get unsupportedEntities() { return [...this.unsupported].sort() }
 
-  update(slice: Slice) {
+  update(slice: Slice, camera?: Vector3, drawDistance = Infinity) {
     if (this.mesh) {
       this.group.remove(this.mesh)
       this.mesh.geometry.dispose()
@@ -162,6 +162,7 @@ export class SpecialWorld {
         const props = state(entry.state)
         const level = Number(props.level ?? 0)
         const at: Vec3 = [x, y, z]
+        if (camera && Math.hypot(x - camera.x, y - camera.y, z - camera.z) > drawDistance) continue
         const sameFluid = (other: number) => palette[other]?.render === 'fluid' && palette[other].state.split('[')[0] === idName
         const aboveInSlice = y < slice.maxY && sameFluid(this.access.block(x, y + 1, z))
         const height = fluidHeight(level, aboveInSlice)
@@ -182,6 +183,7 @@ export class SpecialWorld {
     for (const blockEntity of this.loaded.document.blockEntities) {
       const [x, y, z] = blockEntity.at
       if (y < slice.minY || y > slice.maxY) continue
+      if (camera && Math.hypot(x - camera.x, y - camera.y, z - camera.z) > drawDistance) continue
       const id = blockEntity.id
       const entryId = this.access.block(x, y, z)
       const blockState = palette[entryId]?.state ?? ''

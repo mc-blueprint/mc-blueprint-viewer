@@ -36,7 +36,7 @@ export class MeshWorld {
     this.group.remove(mesh.group)
     this.resident.delete(key)
   }
-  async update(camera: Vector3, slice = this.slice): Promise<boolean> {
+  async update(camera: Vector3, slice = this.slice, drawDistance = Infinity): Promise<boolean> {
     const revision = ++this.revision
     if (slice.minY !== this.slice.minY || slice.maxY !== this.slice.maxY) {
       for (const key of this.resident.keys()) this.remove(key)
@@ -44,6 +44,7 @@ export class MeshWorld {
     }
     const distance = (at: number[]) => camera.distanceToSquared(new Vector3(...at).addScalar(8))
     const sorted = this.loaded.chunks.filter(c => c.at[1] <= slice.maxY && c.at[1] + c.size[1] > slice.minY)
+      .filter(c => distance(c.at) <= (drawDistance + Math.sqrt(3) * 8) ** 2)
       .sort((a, b) => distance(a.at) - distance(b.at))
     const wanted = new Set(sorted.map(c => c.at.join(',')))
     for (const key of this.resident.keys()) if (!wanted.has(key)) this.remove(key)

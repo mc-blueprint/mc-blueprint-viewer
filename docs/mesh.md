@@ -14,7 +14,7 @@
 
 `loadLight(loaded)` は Web Worker で scene 全体を一度計算し、`LightVolume { size, sky, block, opacity }` を返す。各 Uint8Array は `(y * size[2] + z) * size[0] + x` 順、元のブロック配列は転送・変更しない。エラーは起動画面へ返し、光の完了前に ready にしない。上空だけを空の光の流入元とし、直射の15は透明な空気で減衰しない。それ以外は入射先の `max(1, opacity)` で減衰する。ブロック光は不透明な発光体からも伝播する。頂点サンプルは水平の範囲外を端へ固定し、上空はsky=15・block=0、下端は0。断面は元の建物の光を保ち、AOだけ非表示ブロックを除く。
 
-scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/voxel（256×128×256で24MiB）。Worker は計算中に追加で待ち行列とフラグの5 bytes/voxel、および入力のブロック配列のコピーを使う。時刻・明るさ・blockLightはライトマップに反映し、low / auto の影は無効、medium=2048・high=4096。ゲームの光レベルの非線形減衰と明るさの四次補間を使用するが、色味・環境光・斜面AOは近似で、ゲーム画面との同一性は保証しない。
+scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/voxel（256×128×256で24MiB）。Worker は計算中に追加で待ち行列とフラグの5 bytes/voxel、および入力のブロック配列のコピーを使う。時刻・明るさ・blockLightはライトマップに反映し、lowの影は無効、medium / auto=2048・high=4096。autoは#5の実測判定で段階的に影・AOを無効にする。`createLighting` の共有 `ao` uniformを `lightMaterial` の第3引数へ渡すと、構築済み・新規の通常／特殊メッシュへ同時にAOの有無を反映できる。ゲームの光レベルの非線形減衰と明るさの四次補間を使用するが、色味・環境光・斜面AOは近似で、ゲーム画面との同一性は保証しない。
 
 ## #4: 特殊描画と断面
 
@@ -36,4 +36,14 @@ MeshWorld はカメラからチャンク中心までの距離順に作る。qual
 
 上限は四角形の面数であり、バイト数・FPSの保証ではない。`stats.meshBytes` は頂点・インデックス配列の合計（1面296 bytes）で、GPUへの複製・構築中の一時配列・scene の配列・JSオブジェクトを含まない。`atlasBytes` は RGBA のサイズ。fps・プロセスメモリは別に測る。
 
-実行状態は `window.viewer.ready` または `#status[data-ready=true]` で確認できる。`window.viewer.metrics` は常駐面数・配列バイト数・フレーム数などの計測用。scene・camera・controls・renderer・meshes もここから検査できる。これは現時点の開発接続点で、#5 の静止画プロトコルは未実装。
+`MeshWorld.update(camera, slice, drawDistance)` の第3引数はカメラからの距離（ブロック単位、省略時Infinity）。チャンクの外接球が距離内に入れば保持し、面予算も引き続き適用する。`SpecialWorld.update(slice, camera, drawDistance)` は流体・エンティティの所有座標で距離を判定する。autoの距離段階は1 → 0.75 → 0.5 → 0.25。1は距離制限なし、以降はカメラからscene中心までの距離＋scene対角長×（段階−0.5）を描画距離とし、近傍16ブロックを最低限保つ。
+
+## #5 → #7: プリセットと描画完了
+
+実行状態は `window.viewer.ready` または `#status[data-ready=true]` で確認できる。準備完了はアセット・光・メッシュ・特殊描画と後処理を含む1フレームの描画後。`window.viewer.metrics` は常駐面数・配列バイト数・フレーム数などの計測用。scene・camera・controls・renderer・meshes もここから検査できる。
+
+- `await window.viewer.setPreset('vanilla' | 'soft' | 'cinematic')`：sceneを変更せず、指定プリセットとsceneの品質から再開し、現在の視点の描画完了まで待つ。autoの引下げ状態と計測窓もリセットする。
+- `await window.viewer.renderFrame()`：camera / controls更新後に呼ぶ。保留中のカメラ更新を取り込み、現在の断面・距離のメッシュ更新と後処理、GPU処理の完了まで待つ。同時更新による中断や構築・描画失敗はrejectする。
+- `window.viewer.quality`：実効状態 `{ shader, shadows, ao, distance }` のコピー。太陽が地平線より下なら、shadows=trueでも影は描かれない。
+
+撮影前には `controls.update()` の後に `renderFrame()` を待つ。`renderer.render()` の直接呼出しは後処理を通らない。これらは#7の静止画モードが再利用する接続点で、静止画モードのURL・通知プロトコル自体は#7で定義する。

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { CanvasTexture, Mesh, Vector3 } from 'three'
 import { makeScene } from '../scripts/generate-scenes.mjs'
 import type { LoadedScene } from '../src/scene/types'
-import { bedUV, chestSides, chestTexture, fluidHeight, specialTextures, unsupportedEntityIds, visibleFluidSides } from '../src/special/world'
+import { bedUV, chestSides, chestTexture, fluidHeight, SpecialWorld, specialTextures, unsupportedEntityIds, visibleFluidSides } from '../src/special/world'
+import type { Atlas } from '../src/mesh/atlas'
+import { propagateLight } from '../src/light/propagation'
+import { lightMap } from '../src/light/environment'
 
 function loadedFixture(): LoadedScene {
   const document = makeScene()
@@ -60,6 +64,29 @@ describe('ベッドの状態と向き', () => {
 })
 
 describe('特殊描画のアセットと未対応一覧', () => {
+  it('流体とエンティティも描画距離で除外し、距離を戻すと復元する', () => {
+    const loaded = loadedFixture()
+    const atlas: Atlas = { texture: new CanvasTexture({} as HTMLCanvasElement), bytes: 4,
+      tiles: new Map(specialTextures(loaded).map(id => [id, { u: 0, v: 0, width: 1, height: 1, layer: 'opaque' as const }])) }
+    const light = propagateLight({ ...loaded.document, chunks: loaded.chunks })
+    const texture = lightMap(0.5, 1, true)
+    const world = new SpecialWorld(loaded, atlas, light, texture)
+    const slice = { minY: 0, maxY: 15 }
+    const count = () => (world.group.children[0] as Mesh).geometry.getAttribute('blockPosition').count
+    world.update(slice)
+    const all = count()
+    const camera = new Vector3(16, 1, 3)
+    world.update(slice, camera, 3)
+    expect(count()).toBeGreaterThan(0)
+    expect(count()).toBeLessThan(all)
+    const owners = (world.group.children[0] as Mesh).geometry.getAttribute('blockPosition')
+    for (let i = 0; i < owners.count; i++) expect(camera.distanceTo(new Vector3().fromBufferAttribute(owners, i))).toBeLessThanOrEqual(3)
+    world.update(slice)
+    expect(count()).toBe(all)
+    world.dispose()
+    texture.dispose()
+    atlas.texture.dispose()
+  })
   it('fixtureのfluid・単体/2連チェスト・bed向けテクスチャを選ぶ', () => {
     const loaded = loadedFixture()
     expect(specialTextures(loaded)).toEqual(expect.arrayContaining([
