@@ -1,8 +1,9 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial } from 'three'
-import type { DataTexture, Vector3 } from 'three'
-import type { LoadedScene, Vec3 } from '../scene/types'
+import type { DataTexture } from 'three'
+import type { DecodedChunk, LoadedScene, SceneDocument, Vec3 } from '../scene/types'
 import type { Atlas } from '../mesh/atlas'
-import { BlockAccess, type Slice } from '../mesh/chunk'
+import { BlockAccess, tintColor, type Slice } from '../mesh/chunk'
+import type { ResidentChunk } from '../mesh/world'
 import { lightMaterial } from '../light/material'
 import { lightVertices } from '../light/vertices'
 import { usesBlockModel } from '../mesh/models'
@@ -24,15 +25,9 @@ const faces = [
 
 function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: number[][]; color?: Vec3 }[], atlas: Atlas) {
   const positions: number[] = [], uvs: number[] = [], colors: number[] = [], owners: number[] = [], indices: number[] = []
-  const layers = ['opaque', 'cutout', 'translucent']
-  const groups: { start: number; count: number; materialIndex: number }[] = []
-  quads.sort((a, b) => layers.indexOf(atlas.tiles.get(a.tile)!.layer) - layers.indexOf(atlas.tiles.get(b.tile)!.layer))
   for (const quad of quads) {
     const tile = atlas.tiles.get(quad.tile)
     if (!tile) continue
-    const materialIndex = layers.indexOf(tile.layer)
-    if (groups.at(-1)?.materialIndex !== materialIndex) groups.push({ start: indices.length, count: 0, materialIndex })
-    groups.at(-1)!.count += 6
     const start = positions.length / 3
     quad.points.forEach((point, i) => {
       positions.push(...point.map((v, axis) => v + quad.at[axis]))
@@ -50,7 +45,6 @@ function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: numb
   result.setAttribute('blockPosition', new Float32BufferAttribute(owners, 3))
   result.setAttribute('light', new Float32BufferAttribute(Array(positions.length / 3).fill([15, 0, 1]).flat(), 3))
   result.setIndex(indices)
-  for (const group of groups) result.addGroup(group.start, group.count, group.materialIndex)
   result.computeVertexNormals()
   return result
 }
@@ -150,50 +144,45 @@ export function unsupportedEntityIds(ids: string[]) {
   return [...new Set(ids.filter(id => !isChestEntity(id) && !isBedEntity(id)))].sort()
 }
 
-/** Fluid・ブロックエンティティを通常メッシュから分離して描画する。slice は両端を含む。 */
+/** Fluid・ブロックエンティティのチャンクを構築する。常駐資源は MeshWorld が所有する。 */
 export class SpecialWorld {
-  readonly group = new Group()
   private access: BlockAccess
   private material: MeshLambertMaterial[]
   private unknownMaterial: MeshLambertMaterial
-  private mesh?: Mesh
-  private unknownMeshes: Mesh[] = []
-  private unsupported = new Set<string>()
+  private entities = new Map<string, SceneDocument['blockEntities']>()
 
   constructor(private loaded: LoadedScene, private atlas: Atlas, private light: LightVolume, lightTexture: DataTexture, ao = { value: 1 }) {
     this.access = new BlockAccess(loaded)
     this.material = ['opaque', 'cutout', 'translucent'].map(layer => lightMaterial({ map: atlas.texture, vertexColors: true,
       transparent: layer === 'translucent', alphaTest: layer === 'cutout' ? 0.5 : 0.01, depthWrite: layer !== 'translucent', side: 2 }, lightTexture, ao))
     this.unknownMaterial = lightMaterial({ color: 0xc080b0 }, lightTexture, ao)
+    for (const entity of loaded.document.blockEntities) {
+      const key = entity.at.map(v => Math.floor(v / 16) * 16).join(',')
+      if (!this.entities.has(key)) this.entities.set(key, [])
+      this.entities.get(key)!.push(entity)
+    }
   }
 
-  get unsupportedEntities() { return [...this.unsupported].sort() }
+  get unsupportedEntities() { return unsupportedEntityIds(this.loaded.document.blockEntities.map(item => item.id)) }
 
-  update(slice: Slice, camera?: Vector3, drawDistance = Infinity) {
-    if (this.mesh) {
-      this.group.remove(this.mesh)
-      this.mesh.geometry.dispose()
-    }
-    for (const unknown of this.unknownMeshes) {
-      this.group.remove(unknown)
-      unknown.geometry.dispose()
-    }
-    this.unknownMeshes = []
-    const { palette, size } = this.loaded.document
+  /** slice は両端を含む。面数超過は配列構築中に検出し、GPU 資源を作らず返す。 */
+  buildChunk(chunk: DecodedChunk, slice: Slice, limit: number): ResidentChunk | undefined {
+    const { palette, environment } = this.loaded.document
+    const tint = environment.tints?.water
+    const waterColor = (tint ? tintColor(tint.l, tint.a, tint.b) : [1, 1, 1]) as Vec3
     const quads: { at: Vec3; points: number[][]; tile: string; uv?: number[][]; color?: Vec3 }[] = []
     const unknownBoxes: { at: Vec3; owner: Vec3 }[] = []
-    for (let y = slice.minY; y <= Math.min(slice.maxY, size[1] - 1); y++) {
-      for (let z = 0; z < size[2]; z++) for (let x = 0; x < size[0]; x++) {
+    for (let y = Math.max(slice.minY, chunk.at[1]); y <= Math.min(slice.maxY, chunk.at[1] + chunk.size[1] - 1); y++) {
+      for (let z = chunk.at[2]; z < chunk.at[2] + chunk.size[2]; z++) for (let x = chunk.at[0]; x < chunk.at[0] + chunk.size[0]; x++) {
         const id = this.access.block(x, y, z), entry = palette[id]
         if (entry.render !== 'fluid') continue
         const idName = entry.state.split('[')[0]
         const isLava = idName.endsWith(':lava')
         const tile = isLava ? lava : water
-        const color: Vec3 = isLava ? [1, 0.45, 0.08] : [0.25, 0.48, 0.95]
+        const color: Vec3 = isLava ? [1, 0.45, 0.08] : waterColor
         const props = state(entry.state)
         const level = Number(props.level ?? 0)
         const at: Vec3 = [x, y, z]
-        if (camera && Math.hypot(x - camera.x, y - camera.y, z - camera.z) > drawDistance) continue
         const sameFluid = (other: number) => palette[other]?.render === 'fluid' && palette[other].state.split('[')[0] === idName
         const aboveInSlice = y < slice.maxY && sameFluid(this.access.block(x, y + 1, z))
         const height = fluidHeight(level, aboveInSlice)
@@ -208,13 +197,13 @@ export class SpecialWorld {
           const face = faces.find(candidate => candidate.side === side)!
           const points = face.points.map(p => p.map((v, axis) => axis === 1 ? v * height : v))
           quads.push({ at, points, tile, color })
+          if (quads.length > limit) return undefined
         }
       }
     }
-    for (const blockEntity of this.loaded.document.blockEntities) {
+    for (const blockEntity of this.entities.get(chunk.at.join(',')) ?? []) {
       const [x, y, z] = blockEntity.at
       if (y < slice.minY || y > slice.maxY) continue
-      if (camera && Math.hypot(x - camera.x, y - camera.y, z - camera.z) > drawDistance) continue
       const id = blockEntity.id
       const entryId = this.access.block(x, y, z)
       if (usesBlockModel(palette[entryId], this.loaded.document.minecraftVersion)) continue
@@ -246,23 +235,35 @@ export class SpecialWorld {
       } else {
         unknownBoxes.push({ at: [x + 0.1, y + 0.1, z + 0.1], owner: [x, y, z] })
       }
+      if (quads.length + unknownBoxes.length * 6 > limit) return undefined
     }
-    this.unsupported = new Set(unsupportedEntityIds(this.loaded.document.blockEntities.map(item => item.id)))
-    const specialGeometry = geometry(quads, this.atlas)
-    lightVertices(specialGeometry, this.light, slice)
-    this.mesh = new Mesh(specialGeometry, this.material)
-    this.group.add(this.mesh)
+    const group = new Group()
+    const geometries: BufferGeometry[] = []
+    for (const [index, layer] of ['opaque', 'cutout', 'translucent'].entries()) {
+      const layerQuads = quads.filter(quad => this.atlas.tiles.get(quad.tile)!.layer === layer)
+      if (!layerQuads.length) continue
+      const specialGeometry = geometry(layerQuads, this.atlas)
+      lightVertices(specialGeometry, this.light, slice)
+      const mesh = new Mesh(specialGeometry, this.material[index])
+      mesh.castShadow = layer !== 'translucent'
+      mesh.receiveShadow = true
+      group.add(mesh)
+      geometries.push(specialGeometry)
+    }
     for (const { at, owner } of unknownBoxes) {
       const box = boxGeometry(at, owner)
       lightVertices(box, this.light, slice)
       const unknown = new Mesh(box, this.unknownMaterial)
-      this.unknownMeshes.push(unknown)
-      this.group.add(unknown)
+      unknown.castShadow = true
+      unknown.receiveShadow = true
+      group.add(unknown)
+      geometries.push(box)
     }
+    const bytes = geometries.reduce((sum, item) => sum + Object.values(item.attributes).reduce((n, attr) => n + attr.array.byteLength, 0) + item.index!.array.byteLength, 0)
+    return { group, geometries, faces: quads.length + unknownBoxes.length * 6, bytes }
   }
 
   dispose() {
-    if (this.mesh) this.mesh.geometry.dispose()
     this.material.forEach(material => material.dispose())
     this.unknownMaterial.dispose()
   }
@@ -280,8 +281,8 @@ export function specialTextures(loaded: LoadedScene) {
     const stateId = loaded.document.palette[access.block(...item.at)]?.state ?? ''
     if (isChestEntity(item.id)) textures.add(chestTexture(item.id, stateId))
     if (isBedEntity(item.id)) {
-      const blockId = loaded.document.palette.find(entry => entry.state.includes('_bed'))?.state.split('[')[0].split(':').at(-1) ?? 'red_bed'
-      textures.add(bedTexture(blockId.slice(0, -4)))
+      const blockId = stateId.split('[')[0].split(':').at(-1) ?? 'red_bed'
+      textures.add(bedTexture(blockId.endsWith('_bed') ? blockId.slice(0, -4) : 'red'))
     }
   }
   return [...textures]

@@ -8,6 +8,8 @@
 
 `buildChunk` の BufferGeometry はインデックス付き（1面4頂点・2三角形）。`position` と `blockPosition` は scene ローカル座標、`normal` は面の法線、`uv` はアトラス内の座標、`color` は tint 適用済みの線形 RGB。
 
+`tint: fixed` は palette の `tintColor`（OKLab `[L,a,b]`）を使い、grass / foliage / water は `environment.tints` を使う。いずれも同じ `tintColor` 関数で線形 RGB へ変換し、モデルの tintindex 面だけに乗算する。fixed の色欠落と fixed 以外への tintColor 指定は正本スキーマで拒否する。
+
 `light` は Float32 の3成分で `[sky, block, ao]`（それぞれ 0〜15、0〜15、0〜1）。初期値は `[15, 0, 1]`。#3 の `lightVertices` が頂点の属性を書き換え `needsUpdate = true` とし、`lightMaterial` がライトマップ・面の向き・AO・太陽の影を合成する。tint 適用済みの `color` は保持する。位置・法線・所有ブロックを使って面の外側をサンプリングする。部分モデルは所有ブロックの外側、斜面は主法線軸による近似。カメラ移動・断面変更で作り直した geometry にも `MeshWorld` の第5引数の `apply(geometry, slice)` が適用される。マテリアルは同引数の `material(layer)` で渡す。省略時は従来の MeshBasicMaterial。
 
 `MeshWorld.group` 配下の各チャンク Group がレイヤーごとの three.js Mesh を持つ。不透明・二値アルファの Mesh は影を落とし、全レイヤーが影を受ける。#3 の接続箇所は `src/mesh/world.ts` の第5引数と `src/main.ts` の起動処理。#4 の特殊描画も `loadLight` の結果と `lightMaterial` を再利用できる。`lightVertices` には position / normal / blockPosition / light が必要。
@@ -18,7 +20,7 @@ scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/vox
 
 ## #4: 特殊描画と断面
 
-特殊描画は同じ LoadedScene を読む別 Group とする。`Slice { minY, maxY }` は表示するブロックの Y 範囲（両端を含む）。上限だけなら minY=0、単一階なら minY=maxY。`MeshWorld.update(camera.position, slice)` の呼出しと同じ範囲を特殊描画へ渡す。断面外の隣接ブロックは面省略に使わず、切断面を復元する。
+特殊描画は `MeshWorld` 第6引数の `ChunkExtras` として接続する。`SpecialWorld.buildChunk(chunk, slice, limit)` は同じ LoadedScene のチャンク内だけを構築し、Group・geometry一覧・面数・配列バイト数を返す。残り面数を超える場合はGPU資源を作らず undefined を返す。通常と特殊の合計でチャンクを採否し、常駐geometryは MeshWorld が所有・破棄する。SpecialWorld の dispose は共有マテリアルだけを破棄する。`Slice { minY, maxY }` は表示するブロックの Y 範囲（両端を含む）。上限だけなら minY=0、単一階なら minY=maxY。断面外の隣接ブロックは面省略に使わず、切断面を復元する。
 
 流体の水源は上に同じ流体がなければ高さ 8/9、上に続く場合は 1 とし、level 1〜7 は `(8 - level) / 8` で近似する。四隅の高さの平均や流向による傾斜は計算しない。チェストの通常・trapped は単体／左右で各専用テクスチャを選び、ender chest は単体テクスチャを使う。
 
@@ -34,9 +36,9 @@ scene 全体の照明は常駐メッシュと独立し、保持量は3 bytes/vox
 
 MeshWorld はカメラからチャンク中心までの距離順に作る。quality の面上限は low=200万、medium=500万、high=1,000万、auto は low。上限で距離順の連続した集合を打ち切り、遠方の geometry を dispose して CPU/GPU の参照も外す。構築途中も残りの面予算を超えたチャンクを保持しない。既存チャンクは再利用し、構築中は時間を区切ってイベントループへ戻る。より新しい視点・断面の更新が来たら古い更新を打ち切る。
 
-上限は四角形の面数であり、バイト数・FPSの保証ではない。`stats.meshBytes` は頂点・インデックス配列の合計（1面296 bytes）で、GPUへの複製・構築中の一時配列・scene の配列・JSオブジェクトを含まない。`atlasBytes` は RGBA のサイズ。fps・プロセスメモリは別に測る。
+上限は通常・特殊を合わせた四角形の面数であり、バイト数・FPSの保証ではない。`stats.faces` と `stats.meshBytes` は特殊描画も含む。meshBytes は頂点・インデックス配列の合計（通常は1面296 bytes、特殊はインデックス幅により284または296 bytes）で、GPUへの複製・構築中の一時配列・scene の配列・JSオブジェクトを含まない。`atlasBytes` は RGBA のサイズ。fps・プロセスメモリは別に測る。
 
-`MeshWorld.update(camera, slice, drawDistance)` の第3引数はカメラからの距離（ブロック単位、省略時Infinity）。チャンクの外接球が距離内に入れば保持し、面予算も引き続き適用する。`SpecialWorld.update(slice, camera, drawDistance)` は流体・エンティティの所有座標で距離を判定する。autoの距離段階は1 → 0.75 → 0.5 → 0.25。1は距離制限なし、以降はカメラからscene中心までの距離＋scene対角長×（段階−0.5）を描画距離とし、近傍16ブロックを最低限保つ。
+`MeshWorld.update(camera, slice, drawDistance)` の第3引数はカメラからの距離（ブロック単位、省略時Infinity）。チャンクの外接球が距離内に入れば保持し、面予算も引き続き適用する。流体・エンティティも同じチャンクの距離判定・予算・解放に従い、初回から適用される。autoの距離段階は1 → 0.75 → 0.5 → 0.25。1は距離制限なし、以降はカメラからscene中心までの距離＋scene対角長×（段階−0.5）を描画距離とし、近傍16ブロックを最低限保つ。
 
 ## #5 → #7: プリセットと描画完了
 
@@ -52,4 +54,4 @@ MeshWorld はカメラからチャンク中心までの距離順に作る。qual
 
 URLとreadyの接続契約は [still.md](still.md)。26.2 / 26.3のベッドは公式jarの通常ブロックモデルへ移行しており、`usesBlockModel` が `render: entity` のベッドも通常メッシュで解決する。同じベッドの特殊描画・旧entityテクスチャ取得は除外する。sceneのpaletteや元データのSHA-256は変更しない。1.21.11 / 26.1.2は旧entityテクスチャを使い、sceneが `render: model` を指定した新版ベッドも通常どおり扱う。
 
-チェストは胴・蓋・留め具のUV領域と向きを分け、左右半分をつなぐ。旧ベッドは頭足と脚を分ける。特殊geometryは通常メッシュと同じopaque / cutout / translucentにmaterial groupを分け、opaque / cutoutは深度を書き込む。流体の高さ・アニメーション・半透明面のソートの近似範囲は従来どおり。
+チェストは胴・蓋・留め具のUV領域と向きを分け、左右半分をつなぐ。旧ベッドは頭足と脚を分け、配置された全色のテクスチャを取得する。特殊geometryはチャンクごとにopaque / cutout / translucentのMeshへ分け、opaque / cutoutは深度を書き込み影を落とす。全レイヤーと未対応entityの箱は影を受け、箱も影を落とす。水の乗算色は通常描画と同じOklab→線形RGB変換で `environment.tints.water` から適用し、省略時は白とする。流体の高さ・アニメーション・半透明面のソートの近似範囲は従来どおり。

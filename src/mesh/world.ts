@@ -1,21 +1,35 @@
 import { Group, Mesh, MeshBasicMaterial, Vector3 } from 'three'
 import type { BufferGeometry, Material } from 'three'
-import type { LoadedScene } from '../scene/types'
+import type { DecodedChunk, LoadedScene } from '../scene/types'
 import type { Atlas, Layer } from './atlas'
 import { BlockAccess, buildChunk, faceLimits } from './chunk'
-import type { ChunkMesh, Shapes, Slice } from './chunk'
+import type { Shapes, Slice } from './chunk'
+
+export interface ResidentChunk {
+  group: Group
+  geometries: BufferGeometry[]
+  faces: number
+  bytes: number
+}
+
+/** 特殊描画も通常メッシュと同じチャンク・残面数で構築する。上限超過時は資源を残さず undefined を返す。 */
+export interface ChunkExtras {
+  buildChunk(chunk: DecodedChunk, slice: Slice, limit: number): ResidentChunk | undefined
+  dispose(): void
+}
 
 /** カメラ距離順の連続したチャンク集合を保持する。予算外の遠方チャンクは CPU/GPU 両方から解放する。 */
 export class MeshWorld {
   readonly group = new Group()
   readonly access: BlockAccess
-  private resident = new Map<string, ChunkMesh & { group: Group }>()
+  private resident = new Map<string, ResidentChunk>()
   private materials: Map<Layer, Material>
   private revision = 0
   private slice: Slice = { minY: 0, maxY: Infinity }
   readonly limit: number
   constructor(readonly loaded: LoadedScene, private shapes: Shapes, private atlas: Atlas, limit?: number,
-    private lighting?: { material(layer: Layer): Material; apply(geometry: BufferGeometry, slice: Slice): void }) {
+    private lighting?: { material(layer: Layer): Material; apply(geometry: BufferGeometry, slice: Slice): void },
+    private extras?: ChunkExtras) {
     this.access = new BlockAccess(loaded)
     const quality = loaded.document.preview.quality
     this.limit = limit ?? faceLimits[quality === 'auto' ? 'low' : quality]
@@ -59,6 +73,11 @@ export class MeshWorld {
         for (const old of [...this.resident.keys()]) if (!kept.has(old)) this.remove(old)
         const built = buildChunk(chunk, this.access, this.shapes, this.atlas, slice, this.limit - faces)
         if (!built) break
+        const extra = this.extras?.buildChunk(chunk, slice, this.limit - faces - built.faces)
+        if (this.extras && !extra) {
+          built.geometries.forEach(geometry => geometry.dispose())
+          break
+        }
         const group = new Group()
         built.geometries.forEach((geometry, layer) => {
           this.lighting?.apply(geometry, slice)
@@ -67,7 +86,9 @@ export class MeshWorld {
           object.receiveShadow = true
           group.add(object)
         })
-        mesh = { ...built, group }
+        if (extra) group.add(extra.group)
+        mesh = { group, geometries: [...built.geometries.values(), ...(extra?.geometries ?? [])],
+          faces: built.faces + (extra?.faces ?? 0), bytes: built.bytes + (extra?.bytes ?? 0) }
         this.resident.set(key, mesh)
         this.group.add(group)
       }
@@ -87,6 +108,7 @@ export class MeshWorld {
     this.revision++
     for (const key of this.resident.keys()) this.remove(key)
     this.materials.forEach(m => m.dispose())
+    this.extras?.dispose()
     this.atlas.texture.dispose()
   }
 }

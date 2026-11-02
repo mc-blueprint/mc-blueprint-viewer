@@ -89,6 +89,26 @@ describe('モデル・回転', () => {
 })
 
 describe('チャンクメッシュ・後続の境界', () => {
+  it.each(['fixed', 'grass', 'foliage', 'water'] as const)('%sのOklab乗算色をtintindex面だけへ適用する', tint => {
+    const loaded = scene([1, 1, 1], [[0, 0, 0]])
+    loaded.document.palette = [palette[0], { ...palette[1], tint, ...(tint === 'fixed' ? { tintColor: [0.5, 0, 0] as Vec3 } : {}) }]
+    loaded.document.environment.tints = { grass: { l: 0.5, a: 0, b: 0 }, foliage: { l: 0.5, a: 0, b: 0 }, water: { l: 0.5, a: 0, b: 0 } }
+    const model = { ...cube, elements: [{ ...cube.elements[0], faces: {
+      up: { ...cube.elements[0].faces.up, tintindex: 0 }, north: cube.elements[0].faces.north,
+    } }] }
+    const tinted = shapeOf(modelFaces(model, { model: 'test' }))
+    const result = build(loaded, 0, 0, tinted)[0]
+    const geometry = result.geometries.get('opaque')!
+    const colors = geometry.getAttribute('color')
+    tinted.faces.forEach((face, index) => {
+      for (let vertex = 0; vertex < 4; vertex++) {
+        const i = index * 4 + vertex
+        for (const value of [colors.getX(i), colors.getY(i), colors.getZ(i)]) expect(value).toBeCloseTo(face.tint ? 0.125 : 1)
+      }
+    })
+    result.geometries.forEach(geometry => geometry.dispose())
+  })
+
   it('描画距離外の常駐チャンクを解放し、距離を戻すと再構築する', async () => {
     const loaded = scene([65, 1, 1], [[0, 0, 0], [64, 0, 0]])
     const world = new MeshWorld(loaded, [undefined, () => shape], { ...atlas, texture: new CanvasTexture({} as HTMLCanvasElement), bytes: 4 } as Atlas)

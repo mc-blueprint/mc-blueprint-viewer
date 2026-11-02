@@ -5,6 +5,8 @@ export interface PaletteEntry {
   emission: number
   opacity: number
   tint: 'none' | 'grass' | 'foliage' | 'water' | 'fixed'
+  /** tint: fixed のとき必須の OKLab 乗算色 [L, a, b]。 */
+  tintColor?: Vec3
 }
 export interface SourceEntry {
   id: number

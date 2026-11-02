@@ -32,15 +32,14 @@ try {
   const atlas = await createAtlas([...new Set([...models.textures, ...specialTextures(loaded)])], scene.minecraftVersion, renderer.capabilities.maxTextureSize)
   const world = new Scene()
   const lighting = createLighting(world, renderer, scene)
+  const specials = new SpecialWorld(loaded, atlas, light, lighting.texture, lighting.ao)
   const meshes = new MeshWorld(loaded, models.entries, atlas, undefined, {
     material: layer => lightMaterial({ map: atlas.texture, vertexColors: true,
       transparent: layer === 'translucent', alphaTest: layer === 'opaque' ? 0 : layer === 'cutout' ? 0.5 : 0.01,
       depthWrite: layer !== 'translucent' }, lighting.texture, lighting.ao),
     apply: (geometry, slice) => lightVertices(geometry, light, slice),
-  })
-  const specials = new SpecialWorld(loaded, atlas, light, lighting.texture, lighting.ao)
+  }, specials)
   world.add(meshes.group)
-  world.add(specials.group)
   const size = new Vector3(...scene.size)
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
@@ -89,7 +88,6 @@ try {
     const drawDistance = quality.distance === 1 ? Infinity : Math.max(16, camera.position.distanceTo(size.clone().multiplyScalar(0.5)) + size.length() * (quality.distance - 0.5))
     const done = await meshes.update(camera.position, slice, drawDistance)
     if (!done) return false
-    specials.update(slice, camera.position, drawDistance)
     unsupported.hidden = specials.unsupportedEntities.length === 0
     unsupported.textContent = unsupported.hidden ? '' : `簡易表示のブロックエンティティ: ${specials.unsupportedEntities.join('、')}`
     pipeline.render()

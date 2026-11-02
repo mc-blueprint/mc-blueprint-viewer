@@ -1,7 +1,7 @@
 # スキーマの出所
 
 - repository: https://github.com/mc-blueprint/mc-blueprint
-- commit: `3ceb5d21f50cad283d7b79053f7b5d6507f626fd`（PR #133、develop）
+- commit: `1fa6eb633036da9c6eb043e9622a7ce320efd2c2`（PR #141、develop）
 - 正本: `schema/scene.schema.json`・`schema/edits.schema.json`
 - 仕様: 同commitの `docs/VIEWER_SCHEMAS.md`
 - `tests/data/upstream-scene.json` は同commitの `tests/data/scene-v1.json`。

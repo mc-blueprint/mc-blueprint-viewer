@@ -6,6 +6,7 @@ import { BlockDefinition } from 'deepslate'
 import { decodeScene, loadScene } from '../src/scene/load'
 import { makeScene, scenarios } from '../scripts/generate-scenes.mjs'
 import example from './data/upstream-scene.json'
+import { BlockAccess } from '../src/mesh/chunk'
 
 describe('scene 読み込み', () => {
   it('正本の見本を gzip 展開し、元のバイト列から SHA-256 を計算する', async () => {
@@ -28,6 +29,7 @@ describe('scene 読み込み', () => {
     scene.size = [1, 1, 1]
     scene.indexWidth = 32
     scene.palette = Array.from({ length: 65537 }, () => example.palette[1])
+    scene.palette[0] = example.palette[0]
     scene.sources = [{ id: 4294967295, element: 'large' }]
     scene.chunks = [{ at: [0, 0, 0], blocks: 'AAABAA==', sources: '/////w==' }]
     const result = decodeScene(scene)
@@ -38,7 +40,12 @@ describe('scene 読み込み', () => {
     ['版', (s: typeof example) => { s.formatVersion = 2 }],
     ['base64', (s: typeof example) => { s.chunks[0].blocks = '!!!!' }],
     ['配列長', (s: typeof example) => { s.chunks[0].blocks = 'AAA=' }],
-    ['palette 参照', (s: typeof example) => { s.chunks[0].blocks = 'AAACAAEAAAA=' }],
+    ['palette 参照', (s: typeof example) => { s.chunks[0].blocks = 'AAADAAEAAAA=' }],
+    ['palette 0 の状態', (s: typeof example) => { s.palette[0].state = 'minecraft:stone' }],
+    ['palette 0 の描画', (s: typeof example) => { s.palette[0].render = 'model' }],
+    ['fixed の色なし', (s: typeof example) => { delete s.palette[2].tintColor }],
+    ['fixed の色の成分数', (s: typeof example) => { s.palette[2].tintColor = [0.5, 0] }],
+    ['fixed 以外の色', (s: typeof example) => { s.palette[2].tint = 'foliage' }],
     ['生成元参照', (s: typeof example) => { s.sources = [] }],
     ['チャンク重複', (s: typeof example) => { s.chunks.push(s.chunks[0]) }],
     ['チャンク境界', (s: typeof example) => { s.chunks[0].at = [1, 0, 0] }],
@@ -61,6 +68,7 @@ describe('固定 scene', () => {
     const loaded = await loadScene(gzipSync(JSON.stringify(scene)))
     expect(loaded.chunks.length).toBeGreaterThan(0)
     expect(loaded.document.size).toEqual(scene.size)
+    expect(loaded.document.palette[0]).toEqual({ state: 'minecraft:air', render: 'invisible', opacity: 0, emission: 0, tint: 'none' })
     if (name === 'representative') {
       const used = new Set(loaded.chunks.flatMap(chunk => [...chunk.blocks]))
       for (const id of [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18]) expect(used.has(id)).toBe(true)
@@ -75,6 +83,19 @@ describe('固定 scene', () => {
   it('同じ条件で同じ scene を生成する', () => {
     expect(makeScene('representative')).toEqual(makeScene('representative'))
   })
+})
+
+it('範囲外と省略チャンクをpalette 0の空気として扱う', () => {
+  const scene = makeScene('terrain', [33, 1, 1])
+  scene.chunks = scene.chunks.filter(chunk => chunk.at[0] !== 16)
+  const loaded = { ...decodeScene(scene), sha256: '' }
+  const access = new BlockAccess(loaded)
+  expect(access.block(0, 0, 0)).not.toBe(0)
+  expect(access.block(32, 0, 0)).not.toBe(0)
+  for (const at of [[16, 0, 0], [-1, 0, 0], [33, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]] as [number, number, number][]) {
+    expect(access.block(...at)).toBe(0)
+    expect(loaded.document.palette[access.block(...at)].state).toBe('minecraft:air')
+  }
 })
 
 it('deepslate のモデル解決を既定リソースパックなしで利用できる', () => {

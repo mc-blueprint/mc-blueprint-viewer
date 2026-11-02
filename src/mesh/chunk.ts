@@ -28,7 +28,8 @@ export class BlockAccess {
   }
 }
 
-function tintColor(l: number, a: number, b: number): number[] {
+/** scene の Oklab 乗算色を頂点用の線形 RGB（0〜1）へ変換する。 */
+export function tintColor(l: number, a: number, b: number): number[] {
   const c = [l + 0.3963377774 * a + 0.2158037573 * b, l - 0.1055613458 * a - 0.0638541728 * b, l - 0.0894841775 * a - 1.291485548 * b].map(v => v ** 3)
   return [4.0767416621 * c[0] - 3.3077115913 * c[1] + 0.2309699292 * c[2], -1.2684380046 * c[0] + 2.6097574011 * c[1] - 0.3413193965 * c[2], -0.0041960863 * c[0] - 0.7034186147 * c[1] + 1.707614701 * c[2]].map(v => Math.max(0, Math.min(1, v)))
 }
@@ -41,7 +42,8 @@ export function buildChunk(chunk: DecodedChunk, access: BlockAccess, shapes: Sha
   const buffers = new Map<Layer, Buffers>()
   const { palette, environment } = access.scene.document
   const tints = palette.map(entry => {
-    const value = entry.tint === 'none' || entry.tint === 'fixed' ? undefined : environment.tints?.[entry.tint]
+    if (entry.tint === 'fixed') return tintColor(...entry.tintColor!)
+    const value = entry.tint === 'none' ? undefined : environment.tints?.[entry.tint]
     return value ? tintColor(value.l, value.a, value.b) : [1, 1, 1]
   })
   let faces = 0
