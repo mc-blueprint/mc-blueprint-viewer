@@ -3,7 +3,7 @@ import { apiHeaders } from '../scene/api'
 import type { LoadedScene, Vec3 } from '../scene/types'
 import { BlockAccess, blockFromIntersection } from '../mesh/chunk'
 import type { MeshWorld } from '../mesh/world'
-import { addEdit, addEdits, createEdits, selectPoint, selectionRegion, sourceAt, undoEdit, validateEdits } from './edits'
+import { addEdit, createEdits, selectPoint, selectionRegion, sourceAt, undoEdit, validateEdits } from './edits'
 import type { Edit, EditDocument, EditInput } from './edits'
 
 export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera: import('three').Camera, canvas: HTMLCanvasElement) {
@@ -125,22 +125,7 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
     if (!region) return
     let edit: EditInput
     if (kind.value === 'replace') edit = { kind: 'replace', region, block: value.value.trim() }
-    else if (kind.value === 'delete') {
-      const deletes: EditInput[] = []
-      for (let y = region[0][1]; y <= region[1][1]; y++) for (let z = region[0][2]; z <= region[1][2]; z++) for (let x = region[0][0]; x <= region[1][0]; x++) {
-        if (access.block(x, y, z) !== 0) deletes.push({ kind: 'delete', at: [x, y, z] })
-      }
-      if (!deletes.length) { status.textContent = '選択範囲に削除できるブロックがありません。'; return }
-      edits = addEdits(edits, deletes)
-      selected = []
-      pick.dataset.active = 'false'
-      pick.textContent = '範囲の始点を選ぶ'
-      rangeInfo.textContent = ''
-      status.textContent = ''
-      renderEdits()
-      updateForm()
-      return
-    }
+    else if (kind.value === 'delete') edit = { kind: 'delete', region }
     else if (kind.value === 'note') {
       if (!source?.element) { status.textContent = '生成元 element がないため自由文を追加できません。'; return }
       edit = { kind: 'note', element: source.element, text: value.value.trim() }
@@ -187,7 +172,7 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
           const { value: bytes, done } = await reader.read()
           if (done) break
           buffer += decoder.decode(bytes, { stream: true })
-          const chunks = buffer.split('\n\n')
+          const chunks = buffer.split(/\r?\n\r?\n/)
           buffer = chunks.pop() ?? ''
           if (chunks.some(chunk => chunk.includes('event: scene-updated'))) location.reload()
         }
