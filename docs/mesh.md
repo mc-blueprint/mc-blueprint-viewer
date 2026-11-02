@@ -1,6 +1,6 @@
 # 通常メッシュの接続契約（Issue #2）
 
-`loadModels(palette, version)` は `render: model` だけの blockstate・親モデルを認証付きで取得し、palette 添字ごとの形状取得関数を返す。fluid / entity / invisible の関数は undefined。取得失敗は例外を起動画面へ返し、準備完了にはしない。通常メッシュに特殊描画の代替箱は入れない（#4 が担当）。
+`loadModels(palette, version)` は `render: model` の blockstate・親モデルを認証付きで取得し、palette 添字ごとの形状取得関数を返す。fluid / entity / invisible の関数は undefined。ただしIssue #7以降、26.2 / 26.3のentity指定ベッドは通常モデルを使う（末尾参照）。取得失敗は例外を起動画面へ返し、準備完了にはしない。通常メッシュに特殊描画の代替箱は入れない（#4 が担当）。
 
 `createAtlas` は PNG の先頭フレームをアトラスにまとめる。完全不透明・二値アルファ（葉・ガラス板など）・中間アルファでマテリアルを分け、二値は alphaTest、中間アルファは透明描画・depthWrite 無効とする。透明の並べ替えは three.js のチャンク内レイヤー単位で、面同士の完全な透過順序は保証しない。アニメーションはこのIssueの対象外。
 
@@ -47,3 +47,9 @@ MeshWorld はカメラからチャンク中心までの距離順に作る。qual
 - `window.viewer.quality`：実効状態 `{ shader, shadows, ao, distance }` のコピー。太陽が地平線より下なら、shadows=trueでも影は描かれない。
 
 撮影前には `controls.update()` の後に `renderFrame()` を待つ。`renderer.render()` の直接呼出しは後処理を通らない。これらは#7の静止画モードが再利用する接続点で、静止画モードのURL・通知プロトコル自体は#7で定義する。
+
+## #7: 静止画と版ごとの特殊描画
+
+URLとreadyの接続契約は [still.md](still.md)。26.2 / 26.3のベッドは公式jarの通常ブロックモデルへ移行しており、`usesBlockModel` が `render: entity` のベッドも通常メッシュで解決する。同じベッドの特殊描画・旧entityテクスチャ取得は除外する。sceneのpaletteや元データのSHA-256は変更しない。1.21.11 / 26.1.2は旧entityテクスチャを使い、sceneが `render: model` を指定した新版ベッドも通常どおり扱う。
+
+チェストは胴・蓋・留め具のUV領域と向きを分け、左右半分をつなぐ。旧ベッドは頭足と脚を分ける。特殊geometryは通常メッシュと同じopaque / cutout / translucentにmaterial groupを分け、opaque / cutoutは深度を書き込む。流体の高さ・アニメーション・半透明面のソートの近似範囲は従来どおり。

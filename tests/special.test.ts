@@ -6,6 +6,7 @@ import { bedUV, chestSides, chestTexture, fluidHeight, SpecialWorld, specialText
 import type { Atlas } from '../src/mesh/atlas'
 import { propagateLight } from '../src/light/propagation'
 import { lightMap } from '../src/light/environment'
+import { usesBlockModel } from '../src/mesh/models'
 
 function loadedFixture(): LoadedScene {
   const document = makeScene()
@@ -56,6 +57,24 @@ describe('チェストのassetと向き', () => {
 })
 
 describe('ベッドの状態と向き', () => {
+  it.each(['26.2', '26.3'])('%sのベッドは通常モデルを使い、旧テクスチャや特殊描画を重複させない', version => {
+    const loaded = loadedFixture()
+    loaded.document.minecraftVersion = version
+    const bed = loaded.document.palette.find(p => p.state.includes('red_bed'))!
+    expect(usesBlockModel(bed, version)).toBe(true)
+    expect(usesBlockModel(bed, '1.21.11')).toBe(false)
+    expect(usesBlockModel(bed, '26.1.2')).toBe(false)
+    expect(specialTextures(loaded)).not.toContain('minecraft:entity/bed/red')
+    const atlas: Atlas = { texture: new CanvasTexture({} as HTMLCanvasElement), bytes: 4,
+      tiles: new Map(specialTextures(loaded).map(id => [id, { u: 0, v: 0, width: 1, height: 1, layer: 'opaque' as const }])) }
+    const light = propagateLight({ ...loaded.document, chunks: loaded.chunks })
+    const texture = lightMap(0.5, 1, true)
+    const world = new SpecialWorld(loaded, atlas, light, texture)
+    world.update({ minY: 0, maxY: 15 })
+    const owners = (world.group.children[0] as Mesh).geometry.getAttribute('blockPosition')
+    for (let i = 0; i < owners.count; i++) expect(owners.getX(i)).not.toBe(22)
+    world.dispose(); texture.dispose(); atlas.texture.dispose()
+  })
   it('facingごとにUVの向きを回し、headとfootで上面の領域を分ける', () => {
     const directions = ['north', 'east', 'south', 'west']
     expect(new Set(directions.map(facing => JSON.stringify(bedUV('up', facing, 'head')))).size).toBe(4)
@@ -75,6 +94,14 @@ describe('特殊描画のアセットと未対応一覧', () => {
     const count = () => (world.group.children[0] as Mesh).geometry.getAttribute('blockPosition').count
     world.update(slice)
     const all = count()
+    const specialMesh = world.group.children[0] as Mesh
+    const materials = specialMesh.material as import('three').MeshLambertMaterial[]
+    expect(materials.map(m => m.depthWrite)).toEqual([true, true, false])
+    expect(materials.map(m => m.transparent)).toEqual([false, false, true])
+    const allOwners = specialMesh.geometry.getAttribute('blockPosition')
+    for (let i = 0; i < allOwners.count; i++) {
+      expect(Number.isInteger(allOwners.getX(i)) && Number.isInteger(allOwners.getY(i)) && Number.isInteger(allOwners.getZ(i))).toBe(true)
+    }
     const camera = new Vector3(16, 1, 3)
     world.update(slice, camera, 3)
     expect(count()).toBeGreaterThan(0)

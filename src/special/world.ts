@@ -5,6 +5,7 @@ import type { Atlas } from '../mesh/atlas'
 import { BlockAccess, type Slice } from '../mesh/chunk'
 import { lightMaterial } from '../light/material'
 import { lightVertices } from '../light/vertices'
+import { usesBlockModel } from '../mesh/models'
 import type { LightVolume } from '../light/propagation'
 
 const water = 'minecraft:block/water_still'
@@ -23,9 +24,15 @@ const faces = [
 
 function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: number[][]; color?: Vec3 }[], atlas: Atlas) {
   const positions: number[] = [], uvs: number[] = [], colors: number[] = [], owners: number[] = [], indices: number[] = []
+  const layers = ['opaque', 'cutout', 'translucent']
+  const groups: { start: number; count: number; materialIndex: number }[] = []
+  quads.sort((a, b) => layers.indexOf(atlas.tiles.get(a.tile)!.layer) - layers.indexOf(atlas.tiles.get(b.tile)!.layer))
   for (const quad of quads) {
     const tile = atlas.tiles.get(quad.tile)
     if (!tile) continue
+    const materialIndex = layers.indexOf(tile.layer)
+    if (groups.at(-1)?.materialIndex !== materialIndex) groups.push({ start: indices.length, count: 0, materialIndex })
+    groups.at(-1)!.count += 6
     const start = positions.length / 3
     quad.points.forEach((point, i) => {
       positions.push(...point.map((v, axis) => v + quad.at[axis]))
@@ -43,12 +50,32 @@ function geometry(quads: { at: Vec3; points: number[][]; tile: string; uv?: numb
   result.setAttribute('blockPosition', new Float32BufferAttribute(owners, 3))
   result.setAttribute('light', new Float32BufferAttribute(Array(positions.length / 3).fill([15, 0, 1]).flat(), 3))
   result.setIndex(indices)
+  for (const group of groups) result.addGroup(group.start, group.count, group.materialIndex)
   result.computeVertexNormals()
   return result
 }
 
 function textureRegion(x: number, y: number, width: number, height: number) {
   return [[x / 64, y / 64], [x / 64, (y + height) / 64], [(x + width) / 64, (y + height) / 64], [(x + width) / 64, y / 64]]
+}
+
+function entityBox(at: Vec3, from: Vec3, to: Vec3, tile: string, regions: Record<string, number[][]>, facing: string) {
+  const turns = ['north', 'east', 'south', 'west'].indexOf(facing)
+  return faces.map(face => ({ at, tile, uv: regions[face.side], points: face.points.map(point => {
+    const p = point.map((v, axis) => from[axis] + v * (to[axis] - from[axis]))
+    let [x, z] = [p[0], p[2]]
+    for (let i = 0; i < turns; i++) [x, z] = [1 - z, x]
+    return [x, p[1], z]
+  }) }))
+}
+
+function boxUV(u: number, v: number, width: number, height: number, depth: number) {
+  const side = (x: number, w: number) => {
+    const uv = textureRegion(x, v + depth, w, height)
+    return [uv[1], uv[2], uv[3], uv[0]]
+  }
+  return { up: textureRegion(u + depth, v, width, depth), down: textureRegion(u + depth + width, v, width, depth),
+    north: side(u + depth, width), south: side(u + depth * 2 + width, width), east: side(u, depth), west: side(u + depth + width, depth) }
 }
 
 function boxGeometry(at: Vec3, owner: Vec3) {
@@ -102,8 +129,12 @@ export function chestSides(facing: string) {
 export function bedUV(side: string, facing: string, part: string) {
   const turn = ({ north: 0, east: 1, south: 2, west: 3 } as Record<string, number>)[facing] ?? 0
   const top = side === 'up'
-  const region = textureRegion(top ? part === 'head' ? 0 : 16 : 0, top || side === 'down' ? 0 : 16,
-    16, top || side === 'down' ? 16 : 4)
+  const baseY = part === 'head' ? 0 : 22
+  let region = top ? textureRegion(6, baseY + 6, 16, 16) : side === 'down' ? textureRegion(28, baseY + 6, 16, 16) :
+    side === 'east' || side === 'west' ? textureRegion(side === 'east' ? 0 : 22, baseY + 6, 6, 16) : textureRegion(6, baseY, 16, 6)
+  if (side === 'west') region = [region[3], region[2], region[1], region[0]]
+  else if (side === 'east') region = [region[2], region[3], region[0], region[1]]
+  else if (!top && side !== 'down') region = [region[1], region[2], region[3], region[0]]
   return region.map((_, index) => region[(index + turn) % region.length])
 }
 
@@ -123,7 +154,7 @@ export function unsupportedEntityIds(ids: string[]) {
 export class SpecialWorld {
   readonly group = new Group()
   private access: BlockAccess
-  private material: MeshLambertMaterial
+  private material: MeshLambertMaterial[]
   private unknownMaterial: MeshLambertMaterial
   private mesh?: Mesh
   private unknownMeshes: Mesh[] = []
@@ -131,8 +162,8 @@ export class SpecialWorld {
 
   constructor(private loaded: LoadedScene, private atlas: Atlas, private light: LightVolume, lightTexture: DataTexture, ao = { value: 1 }) {
     this.access = new BlockAccess(loaded)
-    const material = { map: atlas.texture, vertexColors: true, transparent: true, alphaTest: 0.01, depthWrite: false, side: 2 as const }
-    this.material = lightMaterial(material, lightTexture, ao)
+    this.material = ['opaque', 'cutout', 'translucent'].map(layer => lightMaterial({ map: atlas.texture, vertexColors: true,
+      transparent: layer === 'translucent', alphaTest: layer === 'cutout' ? 0.5 : 0.01, depthWrite: layer !== 'translucent', side: 2 }, lightTexture, ao))
     this.unknownMaterial = lightMaterial({ color: 0xc080b0 }, lightTexture, ao)
   }
 
@@ -186,22 +217,32 @@ export class SpecialWorld {
       if (camera && Math.hypot(x - camera.x, y - camera.y, z - camera.z) > drawDistance) continue
       const id = blockEntity.id
       const entryId = this.access.block(x, y, z)
+      if (usesBlockModel(palette[entryId], this.loaded.document.minecraftVersion)) continue
       const blockState = palette[entryId]?.state ?? ''
       if (isChestEntity(id)) {
-        const sideIndex = chestSides(state(blockState).facing ?? 'north')
+        const props = state(blockState)
+        const facing = props.facing ?? 'north'
         const texture = chestTexture(id, blockState)
-        const points = faces.map(face => ({ at: [x + 1 / 16, y, z + 1 / 16] as Vec3,
-          points: face.points.map(p => [1 / 16 + p[0] * 14 / 16, p[1] * 14 / 16, 1 / 16 + p[2] * 14 / 16]), tile: texture,
-          uv: face.side === 'up' ? textureRegion(14, 0, 14, 14) : face.side === 'down' ? textureRegion(14, 28, 14, 14) :
-            textureRegion([14, 0, 42, 28][sideIndex.indexOf(face.side)], 14, 14, 10) }))
-        quads.push(...points)
+        const double = props.type === 'left' || props.type === 'right'
+        const minX = props.type === 'right' ? 0 : 1 / 16
+        const maxX = props.type === 'left' ? 1 : 15 / 16
+        const width = double ? 15 : 14
+        const at: Vec3 = [x, y, z]
+        quads.push(...entityBox(at, [minX, 0, 1 / 16], [maxX, 10 / 16, 15 / 16], texture, boxUV(0, 19, width, 10, 14), facing))
+        quads.push(...entityBox(at, [minX, 10 / 16, 1 / 16], [maxX, 14 / 16, 15 / 16], texture, boxUV(0, 0, width, 5, 14), facing))
+        const lockX = !double ? 7 : props.type === 'left' ? 15 : 0
+        const lockWidth = double ? 1 : 2
+        quads.push(...entityBox(at, [lockX / 16, 7 / 16, 0], [(lockX + lockWidth) / 16, 11 / 16, 2 / 16], texture, boxUV(0, 0, lockWidth, 4, 1), facing))
       } else if (isBedEntity(id)) {
         const blockId = blockState.split('[')[0].split(':').at(-1) ?? ''
         const color = blockId.endsWith('_bed') ? blockId.slice(0, -4) : 'red'
         const bedState = state(blockState)
-        quads.push(...faces.map(face => ({ at: [x, y, z] as Vec3,
-          points: face.points.map(p => [p[0], p[1] * 9 / 16, p[2]]), tile: bedTexture(color),
-          uv: bedUV(face.side, bedState.facing ?? 'north', bedState.part ?? 'foot') })))
+        const part = bedState.part ?? 'foot'
+        const facing = bedState.facing ?? 'north'
+        const regions = Object.fromEntries(faces.map(face => [face.side, bedUV(face.side, 'north', part)]))
+        quads.push(...entityBox([x, y, z], [0, 3 / 16, 0], [1, 9 / 16, 1], bedTexture(color), regions, facing))
+        const z0 = part === 'head' ? 0 : 13 / 16
+        for (const x0 of [0, 13 / 16]) quads.push(...entityBox([x, y, z], [x0, 0, z0], [x0 + 3 / 16, 3 / 16, z0 + 3 / 16], bedTexture(color), boxUV(50, 0, 3, 3, 3), facing))
       } else {
         unknownBoxes.push({ at: [x + 0.1, y + 0.1, z + 0.1], owner: [x, y, z] })
       }
@@ -222,7 +263,7 @@ export class SpecialWorld {
 
   dispose() {
     if (this.mesh) this.mesh.geometry.dispose()
-    this.material.dispose()
+    this.material.forEach(material => material.dispose())
     this.unknownMaterial.dispose()
   }
 }
@@ -235,6 +276,7 @@ export function specialTextures(loaded: LoadedScene) {
     textures.add(water); textures.add(lava)
   }
   for (const item of loaded.document.blockEntities) {
+    if (usesBlockModel(loaded.document.palette[access.block(...item.at)], loaded.document.minecraftVersion)) continue
     const stateId = loaded.document.palette[access.block(...item.at)]?.state ?? ''
     if (isChestEntity(item.id)) textures.add(chestTexture(item.id, stateId))
     if (isBedEntity(item.id)) {
