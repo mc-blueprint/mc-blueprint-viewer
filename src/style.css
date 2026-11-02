@@ -11,3 +11,6 @@ canvas { display: block; }
 #selection-panel label { display: inline-flex; gap: 0.5rem; margin: 0.5rem; }
 #selection-panel li { margin: 0.5rem 0; overflow-wrap: anywhere; }
 #selection-panel button { margin: 0.2rem; }
+body.still main { padding: 0; }
+body.still main > :not(#viewport) { display: none; }
+body.still #viewport { width: 100vw; height: 100vh; }

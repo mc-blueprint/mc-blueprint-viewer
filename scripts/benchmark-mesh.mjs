@@ -8,7 +8,7 @@ import { performance } from 'node:perf_hooks'
 import { createServer } from 'vite'
 import { devApi } from './dev-api.mjs'
 import { scenarios } from './generate-scenes.mjs'
-import { withBrowser, waitReady } from './browser.mjs'
+import { withBrowser, waitReady, captureCanvas } from './browser.mjs'
 
 const output = await mkdtemp(join(tmpdir(), 'viewer-measurement-'))
 const selected = process.argv.find(arg => arg.startsWith('--scene='))?.slice('--scene='.length)
@@ -40,7 +40,21 @@ for (const name of names) {
         const initialFrames = await evaluate('window.viewer.metrics.frames')
         const frameStart = performance.now()
         for (let i = 0; i < 10; i++) { await memory(); await delay(Math.max(0, frameStart + (i + 1) * 1000 - performance.now())) }
-        const metrics = await evaluate('({...window.viewer.metrics, heapBytes: performance.memory.usedJSHeapSize, canvas: [window.viewer.renderer.domElement.width, window.viewer.renderer.domElement.height]})')
+        const metrics = await evaluate(`(() => {
+          const v = window.viewer;
+          let specialFaces = 0, specialMeshBytes = 0;
+          v.specials.group.traverse(object => {
+            if (!object.isMesh) return;
+            const g = object.geometry;
+            specialFaces += g.index.count / 6;
+            specialMeshBytes += g.index.array.byteLength + Object.values(g.attributes).reduce((sum, a) => sum + a.array.byteLength, 0);
+          });
+          const gl = v.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
+          return { ...v.metrics, specialFaces, specialMeshBytes,
+            gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+            quality: v.quality, heapBytes: performance.memory.usedJSHeapSize,
+            canvas: [v.renderer.domElement.width, v.renderer.domElement.height] };
+        })()`)
         metrics.fps = (metrics.frames - initialFrames) * 1000 / (performance.now() - frameStart)
         results.push({ name, repeat, readyMs, browser: browser.product, ...metrics, sampledPeakRssBytes: peakRss })
         console.log(JSON.stringify(results.at(-1)))
@@ -52,9 +66,7 @@ for (const name of names) {
           ]
           for (const view of views) {
             await evaluate(`window.viewer.camera.position.set(${view.position}); window.viewer.controls.target.set(${view.target}); window.viewer.controls.update()`)
-            await delay(400)
-            const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
-            await writeFile(join(output, `${view.name}.png`), Buffer.from(screenshot.data, 'base64'))
+            await captureCanvas({ evaluate, send }, join(output, `${view.name}.png`))
           }
           await evaluate(`document.querySelector('#section').value = '0'; document.querySelector('#section').dispatchEvent(new Event('input'))`)
           await waitReady(evaluate)
