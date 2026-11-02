@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import { PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { fetchScene } from './scene/api'
 import { loadModels } from './mesh/models'
@@ -13,12 +13,15 @@ import { mountSelectionUI } from './ui/viewer'
 import { RenderPipeline } from './render/pipeline'
 import { emptySample, initialQuality, lowerQuality, sampleFrame } from './render/quality'
 import type { ShaderPreset } from './render/quality'
+import { frameStill, stillOptions } from './render/still'
 import './style.css'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!
 
 try {
+  const still = stillOptions(new URLSearchParams(location.search))
+  if (still) document.body.classList.add('still')
   const loaded = await fetchScene()
   const { document: scene } = loaded
   const renderer = new WebGLRenderer({ antialias: true })
@@ -42,7 +45,8 @@ try {
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
   const controls = new OrbitControls(camera, renderer.domElement)
-  mountSelectionUI(loaded, meshes, camera, renderer.domElement)
+  if (!still) mountSelectionUI(loaded, meshes, camera, renderer.domElement)
+  controls.enabled = !still
   controls.target.copy(size).multiplyScalar(0.5)
   controls.update()
   const pipeline = new RenderPipeline(renderer, world, camera, size.length())
@@ -130,10 +134,13 @@ try {
   })
   floor.addEventListener('change', () => { void refresh().catch(fail) })
   const resize = () => {
-    renderer.setSize(viewport.clientWidth, viewport.clientHeight)
-    camera.aspect = viewport.clientWidth / viewport.clientHeight
+    const width = viewport.clientWidth, height = viewport.clientHeight
+    const current = renderer.getSize(new Vector2())
+    camera.aspect = width / height
     camera.updateProjectionMatrix()
-    pipeline.setSize(viewport.clientWidth, viewport.clientHeight)
+    if (current.x === width && current.y === height) return
+    renderer.setSize(width, height)
+    pipeline.setSize(width, height)
   }
   new ResizeObserver(resize).observe(viewport)
   resize()
@@ -144,7 +151,7 @@ try {
       frameTimes.push(elapsed)
       if (frameTimes.length > 600) frameTimes.shift()
       frames++
-      if (scene.preview.quality === 'auto') {
+      if (!still && scene.preview.quality === 'auto') {
         const measurement = sampleFrame(sample, elapsed)
         sample = measurement.sample
         if (measurement.lower) {
@@ -169,7 +176,10 @@ try {
     get ready() { return ready },
     get metrics() { return { ...meshes.stats, frames, fps: 1000 / (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length) } },
   } })
-  await refresh()
+  if (still) {
+    frameStill(camera, controls, size, still.view)
+    await setPreset(still.preset)
+  } else await refresh()
 } catch (error) {
   status.textContent = error instanceof Error ? error.message : String(error)
   status.setAttribute('role', 'alert')

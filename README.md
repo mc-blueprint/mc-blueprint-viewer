@@ -19,6 +19,8 @@ scene 読み込み・開発用 API と、通常ブロックのチャンクメッ
 
 Minecraft の jar・テクスチャ・モデルはこのリポジトリと配布物に含めない。テクスチャは利用者の端末で mc-blueprint が展開したものを読む。
 
+`?still=iso&preset=vanilla` でUIのない固定視点の静止画モードに入る。視点はiso / front / top、プリセットはvanilla / soft / cinematic。準備完了通知とF向けの待機方法は [docs/still.md](docs/still.md)、全4版の目視結果は [docs/visual-check.md](docs/visual-check.md) を参照。
+
 ## 開発
 
 Node 24.x / npm 11.x を使う。依存は版を固定している（選定・ライセンスは [docs/decisions.md](docs/decisions.md)）。
@@ -35,6 +37,8 @@ npm run dev
 `npm run assets -- <版> [ローカルclient.jarの絶対パス]` は、1.21.11 では既存の `%APPDATA%\.minecraft\versions\1.21.11\1.21.11.jar` を読む。他版でパスを省略すると公式 version manifest から client jar を取得し、公式の SHA-1 と照合して `%LOCALAPPDATA%\mc-blueprint\cache\jars\` に保存する。ローカルjarでは SHA-1 を計算して記録する。アセットは `cache\assets\<版>\assets\minecraft\...`、出所・SHA-1・展開日時は同階層の manifest.json。既存manifestとSHA-1が異なる場合は上書きしない。途中失敗した `<版>.tmp-<pid>` は保全されるため、確認してから手動で整理する。
 
 `npm run fixtures -- <版>`（既定 1.21.11）は `.dev-scenes/` に representative / castle / town / terrain / underground / vegetation の gzip scene を作る。Mojang の資産は含まない。representative は階段・柵・ガラス板・上下ドア・葉・水・横向きログ・multipart・重み付き chorus plant・チェスト・頭足のあるベッド・光源を含む。残り5場面は 256×128×256。測定条件は [docs/performance.md](docs/performance.md)。
+
+`npm run assets -- <版> --official` は1.21.11も含め公式manifestのSHA-1で検証する。representativeにはIssue #7で溶岩を追加した。`node scripts/verify-still.mjs` は全4版を独立したsceneで撮影し、通常fixtureを上書きせずOSの一時ディレクトリへ画像とハッシュを保存する。
 
 ```powershell
 $env:VIEWER_SCENE = '.dev-scenes/castle.scene.json.gz'
