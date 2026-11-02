@@ -1,4 +1,5 @@
 import { Group, Mesh, MeshBasicMaterial, Vector3 } from 'three'
+import type { BufferGeometry, Material } from 'three'
 import type { LoadedScene } from '../scene/types'
 import type { Atlas, Layer } from './atlas'
 import { BlockAccess, buildChunk, faceLimits } from './chunk'
@@ -9,15 +10,16 @@ export class MeshWorld {
   readonly group = new Group()
   readonly access: BlockAccess
   private resident = new Map<string, ChunkMesh & { group: Group }>()
-  private materials: Map<Layer, MeshBasicMaterial>
+  private materials: Map<Layer, Material>
   private revision = 0
   private slice: Slice = { minY: 0, maxY: Infinity }
   readonly limit: number
-  constructor(readonly loaded: LoadedScene, private shapes: Shapes, private atlas: Atlas, limit?: number) {
+  constructor(readonly loaded: LoadedScene, private shapes: Shapes, private atlas: Atlas, limit?: number,
+    private lighting?: { material(layer: Layer): Material; apply(geometry: BufferGeometry, slice: Slice): void }) {
     this.access = new BlockAccess(loaded)
     const quality = loaded.document.preview.quality
     this.limit = limit ?? faceLimits[quality === 'auto' ? 'low' : quality]
-    this.materials = new Map((['opaque', 'cutout', 'translucent'] as const).map(layer => [layer, new MeshBasicMaterial({
+    this.materials = new Map((['opaque', 'cutout', 'translucent'] as const).map(layer => [layer, lighting?.material(layer) ?? new MeshBasicMaterial({
       map: atlas.texture, vertexColors: true, transparent: layer === 'translucent',
       alphaTest: layer === 'opaque' ? 0 : layer === 'cutout' ? 0.5 : 0.01,
       depthWrite: layer !== 'translucent',
@@ -57,7 +59,13 @@ export class MeshWorld {
         const built = buildChunk(chunk, this.access, this.shapes, this.atlas, slice, this.limit - faces)
         if (!built) break
         const group = new Group()
-        built.geometries.forEach((geometry, layer) => group.add(new Mesh(geometry, this.materials.get(layer)!)))
+        built.geometries.forEach((geometry, layer) => {
+          this.lighting?.apply(geometry, slice)
+          const object = new Mesh(geometry, this.materials.get(layer)!)
+          object.castShadow = layer !== 'translucent'
+          object.receiveShadow = true
+          group.add(object)
+        })
         mesh = { ...built, group }
         this.resident.set(key, mesh)
         this.group.add(group)
