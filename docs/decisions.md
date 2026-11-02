@@ -22,6 +22,14 @@ Lodestone の統合済み描画は便利だが、既定パック除外と独自�
 - [deepslate package.json](https://github.com/misode/deepslate/blob/master/package.json)、[BlockDefinition](https://github.com/misode/deepslate/blob/master/src/render/BlockDefinition.ts)。導入済み 0.27.2 の lib/render/BlockDefinition.js でも選択・UV処理を照合。
 - [Lodestone package.json](https://github.com/mattzh72/lodestone/blob/main/package.json)、[独自 Resources](https://github.com/mattzh72/lodestone#custom-resource-packs)、[BlockDefinition](https://github.com/mattzh72/lodestone/blob/main/src/render/BlockDefinition.ts)、[未対応範囲](https://github.com/mattzh72/lodestone/blob/main/docs/unsupported.md)。確認時点の package.json は 0.6.0。
 
+## 通常メッシュ（Issue #2）
+
+deepslate の `BlockDefinition.getModelVariants` で variant / multipart 条件、`BlockModel.getElementMesh` で要素の形状・UV・要素回転を処理する。アセットの非同期取得時に親の elements / textures を継承し、重み付き配列を位置のハッシュで単一候補へ置き換えてから条件解決へ渡す。空キーの variant は内部の常真条件へ置き換える（固定版の空キー照合を補う）。Minecraft Java の乱数列との完全一致は目的としない。
+
+blockstate の X/Y 回転はブロック中心で行い、uvlock は回転後の面の基底へ UV を変換する。アトラス内ではなくタイル内の中心で補正し、部分 UV の切り出しも保つ。面の省略は隣接する不透明な通常モデルが境界の単位正方形を覆う場合だけ行う。階段・柵などを opacity=15 だけで完全な立方体と扱わない。複数の部分面の和による遮蔽は計算せず、余分な面を残す側に倒す。
+
+カメラ・レイ・GPU 資源解放は既存の three.js、画像取得・PNG 展開は fetch / createImageBitmap / Canvas を使い、新たな依存は追加しない。後続の頂点属性・特殊描画・座標の契約は [mesh.md](mesh.md)。
+
 ## 固定依存と NFR10
 
 直接依存は package.json に完全な版、推移依存は package-lock.json に固定する。Node 24.x / npm 11.x を使用する。

@@ -15,6 +15,7 @@
     "fixtures": "node scripts/generate-scenes.mjs",
     "assets": "node scripts/extract-assets.mjs",
     "benchmark:scene": "node scripts/benchmark-scene.mjs",
+    "benchmark:mesh": "node scripts/benchmark-mesh.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

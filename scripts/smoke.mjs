@@ -1,26 +1,34 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { createServer } from 'vite'
+import { withBrowser, waitReady } from './browser.mjs'
 
-const profile = await mkdtemp(join(tmpdir(), 'viewer-smoke-'))
 const server = await createServer({ server: { host: '127.0.0.1', port: 0, open: false } })
 try {
   await server.listen()
   const address = server.httpServer.address()
-  const browser = process.env.VIEWER_BROWSER ?? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-  const { stdout } = await promisify(execFile)(browser, [
-    '--headless', '--no-first-run', '--disable-extensions', '--disable-background-networking',
-    `--user-data-dir=${profile}`, '--dump-dom', '--virtual-time-budget=10000',
-    `http://127.0.0.1:${address.port}/`,
-  ], { timeout: 45000, windowsHide: true, maxBuffer: 1024 * 1024 })
-  if (!stdout.includes('scene 検証済み') || !stdout.includes('<canvas') || stdout.includes('role="alert"')) {
-    throw new Error(`ブラウザでの scene 読み込みまたは WebGL 初期化に失敗しました:\n${stdout}`)
-  }
-  console.log('ヘッドレスブラウザ: scene 検証・WebGL canvas 作成に成功')
+  await withBrowser(async ({ send, evaluate }) => {
+    await send('Page.navigate', { url: `http://127.0.0.1:${address.port}/` })
+    await waitReady(evaluate)
+    const result = await evaluate('!!document.querySelector("canvas") && !window.viewer.renderer.getContext().isContextLost()')
+    if (!result) throw new Error('WebGL の描画コンテキストを利用できません')
+    const state = () => evaluate('({position: window.viewer.camera.position.toArray(), target: window.viewer.controls.target.toArray(), distance: window.viewer.controls.getDistance()})')
+    const initial = await state()
+    const drag = async (button, buttons) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 600, y: 400, button, buttons, clickCount: 1 })
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 680, y: 440, button, buttons })
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 680, y: 440, button, buttons: 0, clickCount: 1 })
+    }
+    await drag('left', 1)
+    const rotated = await state()
+    await drag('right', 2)
+    const panned = await state()
+    await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 0, deltaY: -200 })
+    const zoomed = await state()
+    if (JSON.stringify(initial.position) === JSON.stringify(rotated.position) ||
+      JSON.stringify(rotated.target) === JSON.stringify(panned.target) || zoomed.distance >= panned.distance) {
+      throw new Error('カメラの回転・移動・拡大が入力へ応答しません')
+    }
+  })
+  console.log('ヘッドレスブラウザ: scene 検証・メッシュ準備完了・マウスによる回転/移動/拡大を確認')
 } finally {
   await server.close()
-  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
