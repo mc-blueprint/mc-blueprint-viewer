@@ -121,9 +121,9 @@ describe('時刻・明るさ・プレビュー設定', () => {
     expect(night[(15 * 16) * 4]).toBeGreaterThan(night[0])
     expect(disabled[(15 * 16) * 4]).toBe(disabled[0])
   })
-  it('lowとautoは影なし、mediumは2048、highは4096', () => {
+  it('lowは影なし、autoとmediumは2048、highは4096', () => {
     const preview = (quality: string, shadows = true) => ({ quality, shadows }) as SceneDocument['preview']
-    expect(['low', 'auto', 'medium', 'high'].map(q => shadowResolution(preview(q)))).toEqual([0, 0, 2048, 4096])
+    expect(['low', 'auto', 'medium', 'high'].map(q => shadowResolution(preview(q)))).toEqual([0, 2048, 2048, 4096])
     expect(shadowResolution(preview('high', false))).toBe(0)
   })
   it('固定版の標準シェーダーに光属性とshadow maskを接続する', () => {
@@ -133,6 +133,22 @@ describe('時刻・明るさ・プレビュー設定', () => {
     expect(shader.vertexShader).toContain('vVoxelLight = light;')
     expect(shader.fragmentShader).toContain('getShadowMask()')
     expect(shader.fragmentShader).not.toContain('reflectedLight.directDiffuse +')
+  })
+  it('共有AO uniformの切替を再コンパイルせず通常・特殊マテリアルへ反映できる', () => {
+    const ao = { value: 1 }
+    const texture = lightMap(0.5, 1, true)
+    for (const parameters of [{ vertexColors: true }, { transparent: true }, { color: 0xc080b0 }]) {
+      const material = lightMaterial(parameters, texture, ao)
+      const shader = { vertexShader: ShaderLib.lambert.vertexShader, fragmentShader: ShaderLib.lambert.fragmentShader, uniforms: {} as Record<string, { value: unknown }> }
+      material.onBeforeCompile(shader as Parameters<typeof material.onBeforeCompile>[0], {} as Parameters<typeof material.onBeforeCompile>[1])
+      expect(shader.uniforms.voxelAO).toBe(ao)
+      ao.value = 0
+      expect(shader.uniforms.voxelAO.value).toBe(0)
+      expect(shader.fragmentShader).toContain('mix(1.0, vVoxelLight.z, voxelAO)')
+      material.dispose()
+      ao.value = 1
+    }
+    texture.dispose()
   })
 })
 

@@ -86,3 +86,13 @@ RSS は別プロファイルの msedge / chrome / chromium プロセスの Worki
 - 2026-11-03、Issue #4 で更新した representative（SHA-256: `6f56baa9ff572bd9001defdc836d8735600b6d8b8f16582b65c74191090a2bbb`）をヘッドレス Edge で再撮影した。水・単体チェスト・左右テクスチャの2連チェスト・ベッドを確認。1回の実行で初回表示815ms、通常メッシュ1,249面、アトラス435,600 bytes、178.8fps。特殊描画を含む完成性能の保証ではない。
 - 同日、代表sceneのignoredな一時コピーに溶岩1ブロックを加えたヘッドレス撮影でも溶岩を確認し、直後にfixtureを再生成した。溶岩は正式なrepresentativeには含めていない。
 - 画像と Mojang の資産はリポジトリに含めない。他3版の完成版の目視確認は未実行。
+
+## シェーダープリセットの確認（Issue #5）
+
+2026-11-03、`node scripts/verify-shaders.mjs` を別プロファイルのヘッドレス Edge 156.0.4314.58 で実行。fixture-v1 / representative / Minecraft 1.21.11、medium、shadows=true、brightness=0.5、timeOfDay=0、blockLight=true、描画領域1280×720・倍率1。ブロック配置は上記の代表sceneと同じで、previewだけを変更した。カメラと注視点はスクリプトの overview / detail に固定する。
+
+- vanilla / soft / cinematic を各2視点で撮影し、画素に差があることと描画エラーがないことを検査した。画像の目視では、通常の着色・形状を保ったvanilla、影の輪郭をぼかすsoft、接地付近の陰影を強めトーンを変えるcinematicを確認した。SSAOは画面空間の近似で、透明・切り抜き面の厳密な遮蔽は保証しない。
+- sceneの初期プリセット反映、`setPreset` の往復切替、`renderFrame` の完了、霧・影フィルタ・トーンマッピングの設定を検査した。cinematic → soft → vanilla を3往復した後も、GPUテクスチャ数は切替前のvanillaと一致した。
+- 自動調整の判定と低下順は純粋関数のテストで検証した。描画距離外の通常メッシュの解放・復元、流体・エンティティの除外・復元と、共有AOの切替もテストした。
+
+画像6枚とscene・画素のハッシュ等の生データはOSの一時ディレクトリ `viewer-shaders-*` へ保存し、リポジトリには含めない。これは見た目と切替の確認で、内蔵GPUの性能目標や完成版5場面の性能測定ではない。SSAOのサンプルはthree.jsの乱数を使うため、実行間の画素ハッシュ一致は要求しない。
