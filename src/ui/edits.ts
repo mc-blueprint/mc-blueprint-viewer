@@ -10,6 +10,7 @@ export interface EditDocument {
 export type Edit =
   | { id: string; kind: 'replace'; region: [Vec3, Vec3]; block: string }
   | { id: string; kind: 'delete'; at: Vec3 }
+  | { id: string; kind: 'delete'; region: [Vec3, Vec3] }
   | { id: string; kind: 'param'; element: string; param: string; value: unknown }
   | { id: string; kind: 'note'; element: string; text: string }
 export type EditInput = Edit extends infer E ? E extends { id: string } ? Omit<E, 'id'> : never : never
