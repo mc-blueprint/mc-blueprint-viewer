@@ -4,6 +4,7 @@ import { fetchScene } from './scene/api'
 import { loadModels } from './mesh/models'
 import { createAtlas } from './mesh/atlas'
 import { MeshWorld } from './mesh/world'
+import { SpecialWorld, specialTextures } from './special/world'
 import './style.css'
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!
@@ -17,11 +18,13 @@ try {
   viewport.append(renderer.domElement)
   status.textContent = 'モデルとテクスチャを読み込んでいます…'
   const models = await loadModels(scene.palette, scene.minecraftVersion)
-  const atlas = await createAtlas(models.textures, scene.minecraftVersion, renderer.capabilities.maxTextureSize)
+  const atlas = await createAtlas([...new Set([...models.textures, ...specialTextures(loaded)])], scene.minecraftVersion, renderer.capabilities.maxTextureSize)
   const meshes = new MeshWorld(loaded, models.entries, atlas)
+  const specials = new SpecialWorld(loaded, atlas)
   const world = new Scene()
   world.background = new Color(0x93b9d2)
   world.add(meshes.group)
+  world.add(specials.group)
   const size = new Vector3(...scene.size)
   const camera = new PerspectiveCamera(50, 1, 0.1, size.length() * 10)
   camera.position.copy(size).multiplyScalar(1.8)
@@ -34,6 +37,10 @@ try {
     <label>断面上限 Y <input id="section" type="range" min="0" max="${scene.size[1] - 1}" value="${scene.size[1] - 1}"><output id="section-value">${scene.size[1] - 1}</output></label>
     <label>階（Y）<select id="floor"><option value="all">すべて</option>${Array.from({ length: scene.size[1] }, (_, y) => `<option value="${y}">${y}</option>`).join('')}</select></label>`
   viewport.before(panel)
+  const unsupported = document.createElement('p')
+  unsupported.id = 'unsupported-entities'
+  unsupported.hidden = true
+  panel.after(unsupported)
   const section = panel.querySelector<HTMLInputElement>('#section')!
   const floor = panel.querySelector<HTMLSelectElement>('#floor')!
   let ready = false
@@ -46,6 +53,9 @@ try {
     const y = floor.value === 'all' ? undefined : Number(floor.value)
     const done = await meshes.update(camera.position, { minY: y ?? 0, maxY: Math.min(y ?? Infinity, Number(section.value)) })
     if (!done) return
+    specials.update({ minY: y ?? 0, maxY: Math.min(y ?? Infinity, Number(section.value)) })
+    unsupported.hidden = specials.unsupportedEntities.length === 0
+    unsupported.textContent = unsupported.hidden ? '' : `簡易表示のブロックエンティティ: ${specials.unsupportedEntities.join('、')}`
     ready = true
     status.setAttribute('role', 'status')
     const stats = meshes.stats
@@ -82,7 +92,7 @@ try {
     lastFrame = now
     renderer.render(world, camera)
   })
-  Object.assign(window, { viewer: { loaded, meshes, camera, controls, renderer,
+  Object.assign(window, { viewer: { loaded, meshes, specials, camera, controls, renderer,
     get ready() { return ready },
     get metrics() { return { ...meshes.stats, frames, fps: 1000 / (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length) } },
   } })
