@@ -50,8 +50,10 @@ try {
         camera.position.set(0.5, 5, 0.5)
         camera.lookAt(0.5, 0, 0.5)
         camera.updateMatrixWorld(true)
+        window.requests = []
         window.fetch = async (url, options) => {
           if (url === '/api/events') return new Response(new ReadableStream({ start(controller) { window.events = controller } }))
+          window.requests.push(url)
           if (url === '/api/edits') window.saved = JSON.parse(options.body)
           return new Response(null, { status: 204 })
         }
@@ -84,11 +86,80 @@ try {
       await page.locator('#save').click()
       await page.locator('#edit-status').filter({ hasText: 'edits を保存しました。' }).waitFor()
       assert.equal((await page.evaluate(() => window.saved.edits)).length, 2)
+      await page.locator('#regenerate').click()
+      await page.locator('#edit-status').filter({ hasText: '再生成が完了しました。' }).waitFor()
+      assert.deepEqual(await page.evaluate(() => window.requests.slice(-2)), ['/api/edits', '/api/regenerate'])
       console.log(`${state}: 特殊ブロック選択・生成元表示・replace→delete編集・編集後の追加・保存を確認`)
       await page.evaluate(() => { window.cleanup(); window.events.close() })
     }
 
+    await page.goto(`${url}?editMode=blocks`)
+    await page.evaluate(async () => {
+      const { mountSelectionUI } = await import('/src/ui/viewer.ts')
+      const loaded = { sha256: 'b'.repeat(64), document: { size: [1, 1, 1], source: { kind: 'scene' }, sources: [] }, chunks: [] }
+      window.requests = []
+      window.fetch = async path => {
+        if (path === '/api/events') return new Response(new ReadableStream({ start(controller) { window.events = controller } }))
+        window.requests.push(path)
+        if (path === '/api/edits') return new Promise(resolve => { window.resolveSave = () => resolve(new Response(null, { status: 204 })) })
+        if (path === '/api/regenerate') return new Response(JSON.stringify({ code: 3, diagnostics: ['評価不合格'] }), { status: 200 })
+        throw new Error(`unexpected request: ${path}`)
+      }
+      mountSelectionUI(loaded, { group: {} }, {}, document.createElement('canvas'))
+    })
+    assert.equal(await page.locator('#kind option[value="note"]').evaluate(option => option.hidden), true)
+    assert.equal(await page.locator('#kind option[value="param"]').evaluate(option => option.hidden), true)
+    await page.locator('#regenerate').click()
+    await page.waitForFunction(() => document.querySelector('#regenerate').disabled)
+    await page.evaluate(() => document.querySelector('#regenerate').click())
+    assert.deepEqual(await page.evaluate(() => window.requests), ['/api/edits'])
+    await page.evaluate(() => window.resolveSave())
+    await page.locator('#edit-status').filter({ hasText: 'code=3' }).waitFor()
+    assert.deepEqual(await page.evaluate(() => window.requests), ['/api/edits', '/api/regenerate'])
+    assert.match(await page.locator('#edit-status').textContent(), /評価不合格/)
+    console.log('editMode=blocks の操作制限と評価 code=3 の表示を確認')
+
+    await page.evaluate(() => {
+      window.requests = []
+      window.fetch = async path => path === '/api/events'
+        ? new Response(new ReadableStream({ start(controller) { window.events = controller } }))
+        : (window.requests.push(path), path === '/api/edits'
+          ? new Response(JSON.stringify({ error: '保存対象が古いsceneです' }), { status: 409 })
+          : new Response(null, { status: 200 }))
+    })
+    await page.locator('#regenerate').click()
+    await page.locator('#edit-status').filter({ hasText: '保存対象が古いsceneです' }).waitFor()
+    assert.match(await page.locator('#edit-status').textContent(), /^409:/)
+    assert.deepEqual(await page.evaluate(() => window.requests), ['/api/edits'])
+    console.log('保存失敗時にサーバーのJSONエラーを表示')
+
+    await page.evaluate(() => {
+      window.requests = []
+      window.fetch = async path => path === '/api/events'
+        ? new Response(new ReadableStream({ start(controller) { window.events = controller } }))
+        : (window.requests.push(path), path === '/api/edits'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ message: '入力を再確認してください' }), { status: 422 }))
+    })
+    await page.locator('#regenerate').click()
+    await page.locator('#edit-status').filter({ hasText: '入力を再確認してください' }).waitFor()
+    assert.match(await page.locator('#edit-status').textContent(), /^422:/)
+    assert.deepEqual(await page.evaluate(() => window.requests), ['/api/edits', '/api/regenerate'])
+
+    await page.evaluate(() => {
+      window.fetch = async path => path === '/api/events'
+        ? new Response(new ReadableStream({ start(controller) { window.events = controller } }))
+        : path === '/api/edits'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: '再生成に失敗しました' }), { status: 500 })
+    })
+    await page.locator('#regenerate').click()
+    await page.locator('#edit-status').filter({ hasText: '再生成に失敗しました' }).waitFor()
+    assert.match(await page.locator('#edit-status').textContent(), /^500:/)
+    console.log('再生成APIの422/500 JSONエラーとstatus表示を確認')
+
     // CRLFがネットワークの読み取り境界で分割されてもイベントを完了する。
+    await page.goto(url)
     for (const separator of ['\n', '\r\n']) {
       await page.reload()
       await page.evaluate(async () => {
