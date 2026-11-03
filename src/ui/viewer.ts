@@ -16,11 +16,16 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
   const panel = document.createElement('section')
   panel.id = 'selection-panel'
   panel.innerHTML = '<h2>ブロック選択</h2><p id="block-info">ブロックをクリックしてください。</p><button id="pick">範囲の始点を選ぶ</button><p id="range-info"></p><label>操作 <select id="kind"><option value="replace">置換</option><option value="delete">削除</option><option value="note">自由文</option><option value="param">パラメータ</option></select></label><label id="param-name-label" hidden>パラメータ <select id="param-name"></select></label><label id="value-label">ブロックID <input id="value" value="minecraft:stone"></label><button id="add" disabled>edits に追加</button><h3>修正指示</h3><ol id="edit-list"></ol><button id="save">保存</button> <button id="regenerate">再生成</button><p id="edit-status" role="status"></p>'
+  const blocksOnly = new URLSearchParams(location.search).get('editMode') === 'blocks'
+  const kind = panel.querySelector<HTMLSelectElement>('#kind')!
+  if (blocksOnly) {
+    kind.querySelector<HTMLOptionElement>('[value="note"]')!.hidden = true
+    kind.querySelector<HTMLOptionElement>('[value="param"]')!.hidden = true
+  }
   document.querySelector('main')!.append(panel)
   const info = panel.querySelector<HTMLElement>('#block-info')!
   const pick = panel.querySelector<HTMLButtonElement>('#pick')!
   const rangeInfo = panel.querySelector<HTMLElement>('#range-info')!
-  const kind = panel.querySelector<HTMLSelectElement>('#kind')!
   const value = panel.querySelector<HTMLInputElement>('#value')!
   const valueLabel = panel.querySelector<HTMLLabelElement>('#value-label')!
   const paramNameLabel = panel.querySelector<HTMLLabelElement>('#param-name-label')!
@@ -43,8 +48,8 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
     const oldParam = paramName.value
     paramName.replaceChildren(...(source?.params ?? []).map(name => new Option(name, name)))
     if ([...paramName.options].some(option => option.value === oldParam)) paramName.value = oldParam
-    kind.querySelector('[value="note"]')!.toggleAttribute('disabled', unsupportedSource || !source?.element)
-    kind.querySelector('[value="param"]')!.toggleAttribute('disabled', unsupportedSource || !source?.element || !source.params?.length)
+    kind.querySelector('[value="note"]')!.toggleAttribute('disabled', blocksOnly || unsupportedSource || !source?.element)
+    kind.querySelector('[value="param"]')!.toggleAttribute('disabled', blocksOnly || unsupportedSource || !source?.element || !source.params?.length)
     if ((kind.value === 'note' || kind.value === 'param') && unsupportedSource) kind.value = 'replace'
     add.disabled = !region || ((kind.value === 'note' || kind.value === 'param') && (!source?.element || unsupportedSource))
   }
@@ -149,13 +154,41 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
 
   async function post(path: string, body?: EditDocument) {
     const response = await fetch(path, { method: 'POST', headers: { ...apiHeaders(), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
-    if (!response.ok) throw new Error(`${path} に失敗しました (${response.status})`)
+    const text = await response.text()
+    let result: { code?: number; diagnostics?: unknown; message?: unknown; error?: unknown } = {}
+    if (text) {
+      try { result = JSON.parse(text) as typeof result }
+      catch { if (!response.ok) throw new Error(text) }
+    }
+    if (!response.ok) throw new Error(text ? errorMessage(text, result, response.status) : `${path} に失敗しました (${response.status})`)
+    return result
   }
-  panel.querySelector('#save')!.addEventListener('click', () => {
+  const save = panel.querySelector<HTMLButtonElement>('#save')!
+  const regenerate = panel.querySelector<HTMLButtonElement>('#regenerate')!
+  let busy = false
+  async function run(action: () => Promise<void>) {
+    if (busy) return
+    busy = true
+    save.disabled = regenerate.disabled = true
+    panel.inert = true
+    try { await action() }
+    catch (error) { status.textContent = error instanceof Error ? error.message : String(error) }
+    finally { busy = false; save.disabled = regenerate.disabled = false; panel.inert = false }
+  }
+  save.addEventListener('click', () => {
     if (!validateEdits(edits)) { status.textContent = 'edits v1 の形式が不正です。'; return }
-    void post('/api/edits', edits).then(() => { status.textContent = 'edits を保存しました。' }).catch(error => { status.textContent = error.message })
+    void run(async () => { await post('/api/edits', edits); status.textContent = 'edits を保存しました。' })
   })
-  panel.querySelector('#regenerate')!.addEventListener('click', () => { void post('/api/regenerate').then(() => { status.textContent = '再生成を要求しました。' }).catch(error => { status.textContent = error.message }) })
+  regenerate.addEventListener('click', () => {
+    if (!validateEdits(edits)) { status.textContent = 'edits v1 の形式が不正です。'; return }
+    void run(async () => {
+      await post('/api/edits', edits)
+      const result = await post('/api/regenerate')
+      status.textContent = result.code === 3
+        ? `再生成は完了しましたが、評価に合格しませんでした (code=3)。${result.diagnostics === undefined ? '' : ` ${JSON.stringify(result.diagnostics)}`}`
+        : '再生成が完了しました。'
+    })
+  })
   renderEdits()
   updateForm()
 
@@ -180,6 +213,13 @@ export function mountSelectionUI(loaded: LoadedScene, meshes: MeshWorld, camera:
     }
   })()
   return () => { stopped = true; panel.remove() }
+}
+
+function errorMessage(text: string, body: { message?: unknown; error?: unknown }, status: number) {
+  if (typeof body.message === 'string') return `${status}: ${body.message}`
+  if (typeof body.error === 'string') return `${status}: ${body.error}`
+  try { return `${status}: ${JSON.stringify(JSON.parse(text))}` }
+  catch { return `${status}: ${text}` }
 }
 
 function replaceEdit(document: EditDocument, index: number, edit: EditInput): EditDocument {
