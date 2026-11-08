@@ -19,7 +19,7 @@ jarは公式version manifestから取得し、公式SHA-1を検証して `%LOCAL
 
 sceneは `makeScene('representative', undefined, version)`（fixture-v1にIssue #7の溶岩を追加した配置）を使用。32×16×16、low、vanilla、影なし、brightness=0.5、timeOfDay=6000、blockLight有効、1600×900、倍率1。固定視点の計算は [still.md](still.md)、拡大カメラは `verify-still.mjs` に固定した。西側拡大は位置(9,5,-8)・注視点(8,1.2,3)、東側拡大は(23,5,-9)・(23,1.2,3)。
 
-最終確認の画像20枚と結果は `C:\Users\ryuma\AppData\Local\Temp\viewer-still-gEUFKR\` に保存した（一時ファイル）。全20枚の保存PNGをデコードして背景だけでないことを検査した後、担当者が画像を開いて確認した。
+最終確認の画像20枚と結果はOSの一時ディレクトリに保存した（一時ファイル）。全20枚の保存PNGをデコードして背景だけでないことを検査した後、担当者が画像を開いて確認した。
 
 | 版 | jar SHA-1 | scene JSON SHA-256 | 除外ブロック |
 |---|---|---|---|

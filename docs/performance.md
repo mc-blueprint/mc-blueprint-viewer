@@ -119,7 +119,7 @@ WebGLの実レンダラーも `ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x0
 
 fpsはready後10秒のフレーム増分/実経過時間。RSSは約1秒ごとの、専用プロファイルを持つmsedge/chrome/chromium各プロセスのWorkingSet64合算の標本最大値。共有ページの重複を含み、JSヒープ・VRAMとは別。**初期構築中のピークRSSと専用GPUメモリは未測定**。約180fpsはこの環境のフレーム周期の上限に近い値で、余力の保証ではない。準備時間はPage.navigate直前から、アセット・光・メッシュ・描画のreadyを観測するまで。
 
-初回表示の生値（ms）：castle=[2703,2719,2823]、town=[3281,3179,3077]、terrain=[5100,5026,5013]、underground=[7947,8045,8027]、vegetation=[4395,4454,4153]。生データは `C:\Users\ryuma\AppData\Local\Temp\viewer-measurement-bYxBj5\results.json` に保存した（リポジトリ外、一時ファイル）。再実行時の保存先は末尾へ表示する。
+初回表示の生値（ms）：castle=[2703,2719,2823]、town=[3281,3179,3077]、terrain=[5100,5026,5013]、underground=[7947,8045,8027]、vegetation=[4395,4454,4153]。生データはリポジトリ外の一時ディレクトリに保存した。再実行時の保存先は末尾へ表示する。
 
 ### 達成状況と未達の原因
 
